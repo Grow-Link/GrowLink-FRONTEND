@@ -1,0 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@custom-variant dark (&:is(.dark, .dark *));
+@import 'tailwindcss';
+
+:root {
+  --gl-bg: #F7F9FA;
+  --gl-card: #FFFFFF;
+  --gl-card2: #EEF2F6;
+  --gl-text: #0B1F3A;
+  --gl-text2: #6B7A99;
+  --gl-line: #DDE4ED;
+  --gl-input: #FFFFFF;
+}
+html.dark {
+  --gl-bg: #081629;
+  --gl-card: #0F2240;
+  --gl-card2: #132A47;
+  --gl-text: #E2EBF6;
+  --gl-text2: #8BA5C2;
+  --gl-line: #1C3254;
+  --gl-input: #132A47;
+}
+
+@theme {
+  --color-gl-blue: #1E73E8;
+  --color-gl-teal: #12C2A8;
+  --color-gl-green: #4CE07E;
+  --color-gl-navy: #0B1F3A;
+  --color-gl-navy-mid: #112849;
+  --color-gl-surface: #F7F9FA;
+  --color-gl-surface-2: #EEF2F6;
+  --color-gl-border: #DDE4ED;
+  --color-gl-muted: #6B7A99;
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: #F7F9FA;
+  color: #0B1F3A;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Bricolage Grotesque', sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.gl-gradient {
+  background: linear-gradient(135deg, #1E73E8 0%, #12C2A8 55%, #4CE07E 100%);
+}
+
+.gl-gradient-text {
+  background: linear-gradient(135deg, #1E73E8, #12C2A8, #4CE07E);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gl-gradient-border {
+  background: linear-gradient(#fff, #fff) padding-box,
+              linear-gradient(135deg, #1E73E8, #12C2A8, #4CE07E) border-box;
+  border: 2px solid transparent;
+}
+
+.live-pulse {
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.bid-enter {
+  animation: bidEnter 0.4s ease-out;
+}
+
+@keyframes bidEnter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Playful, gamified accents used across Marketplace / Roadmap / Duelo / Subasta */
+
+.gl-card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.gl-card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 32px -16px rgba(11, 31, 58, 0.25);
+}
+html.dark .gl-card-hover:hover {
+  box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
+}
+
+.gl-glow-teal {
+  box-shadow: 0 0 0 1px rgba(18, 194, 168, 0.25), 0 8px 24px -8px rgba(18, 194, 168, 0.45);
+}
+.gl-glow-blue {
+  box-shadow: 0 0 0 1px rgba(30, 115, 232, 0.25), 0 8px 24px -8px rgba(30, 115, 232, 0.45);
+}
+
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(0.7); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.gl-pop-in {
+  animation: popIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(0, -14px); }
+}
+.gl-float {
+  animation: floatSlow 7s ease-in-out infinite;
+}
+
+@keyframes bounceIn {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.gl-bounce {
+  animation: bounceIn 1.6s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #DDE4ED;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #12C2A8;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #DDE4ED transparent;
+}
