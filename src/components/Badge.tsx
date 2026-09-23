@@ -26,18 +26,3 @@ export default function Badge({ variant = 'default', children, className = '' }:
     </span>
   );
 }
-
-interface TypeBadgeProps {
-  type: 'course' | 'job' | 'service';
-}
-
-const typeMap: Record<string, { label: string; variant: BadgeVariant }> = {
-  course: { label: 'Curso', variant: 'info' },
-  job: { label: 'Empleo', variant: 'success' },
-  service: { label: 'Servicio', variant: 'teal' },
-};
-
-export function TypeBadge({ type }: TypeBadgeProps) {
-  const { label, variant } = typeMap[type];
-  return <Badge variant={variant}>{label}</Badge>;
-}

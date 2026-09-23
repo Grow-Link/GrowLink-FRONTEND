@@ -157,3 +157,64 @@ html.dark .gl-card-hover:hover {
   scrollbar-width: thin;
   scrollbar-color: #DDE4ED transparent;
 }
+
+/* Dual-handle range slider (two overlapped native inputs) */
+.gl-range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1.25rem;
+  background: transparent;
+  pointer-events: none;
+  margin: 0;
+}
+.gl-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid #1E73E8;
+  box-shadow: 0 1px 4px rgba(11, 31, 58, 0.35);
+  cursor: pointer;
+  margin-top: 0;
+}
+.gl-range-input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 3px solid #1E73E8;
+  box-shadow: 0 1px 4px rgba(11, 31, 58, 0.35);
+  cursor: pointer;
+}
+.gl-range-input::-webkit-slider-runnable-track {
+  height: 1.5px;
+  background: transparent;
+}
+.gl-range-input::-moz-range-track {
+  height: 1.5px;
+  background: transparent;
+}
+
+/* Hover-reveal card footer (CSFloat-style contextual actions) */
+.gl-hover-footer {
+  transform: translateY(100%);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.gl-hover-reveal:hover .gl-hover-footer,
+.gl-hover-reveal:focus-within .gl-hover-footer {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Connection status dot */
+.gl-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  display: inline-block;
+  flex-shrink: 0;
+}

@@ -12,12 +12,12 @@ const PREMIUM_BENEFITS = [
     desc: 'Actualiza tu roadmap cuantas veces necesites, sin restricciones mensuales.',
   },
   {
-    title: 'Prioridad en el matching de oportunidades',
-    desc: 'Tu perfil aparece primero ante proveedores y empleadores en el marketplace.',
+    title: 'Insignia destacada en trivia',
+    desc: 'Tu perfil se distingue en el leaderboard y en las salas donde participas.',
   },
   {
-    title: 'Participación en más pujas simultáneas',
-    desc: 'Accede y puja en todas las subastas activas al mismo tiempo, sin límite.',
+    title: 'Salas de trivia sin límite',
+    desc: 'Crea y únete a todas las salas de trivia que quieras, sin restricción diaria.',
   },
 ];
 

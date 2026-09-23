@@ -1,48 +1,55 @@
 import { NavigationProvider, useNavigation } from './store/NavigationContext';
 import { ThemeProvider } from './store/ThemeContext';
-import AuthPage from './pages/AuthPage';
-import ProfilePage from './pages/ProfilePage';
-import GoalPage from './pages/GoalPage';
+import { AppDataProvider } from './store/AppDataContext';
+import UserSelectPage from './pages/UserSelectPage';
+import HomePage from './pages/HomePage';
+import OnboardingPage from './pages/OnboardingPage';
 import RoadmapPage from './pages/RoadmapPage';
-import MarketplacePage from './pages/MarketplacePage';
-import OpportunityDetailPage from './pages/OpportunityDetailPage';
-import AuctionPage from './pages/AuctionPage';
-import TriviaDuelPage from './pages/TriviaDuelPage';
+import CourseCatalogPage from './pages/CourseCatalogPage';
+import CourseDetailPage from './pages/CourseDetailPage';
+import MyCoursesPage from './pages/MyCoursesPage';
+import PublishCoursePage from './pages/PublishCoursePage';
+import CompletedCoursesPage from './pages/CompletedCoursesPage';
+import TriviaRoomPage from './pages/TriviaRoomPage';
+import TriviaQuestionFormPage from './pages/TriviaQuestionFormPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
-import AdminThemesPage from './pages/AdminThemesPage';
+import AdminCoursesPage from './pages/AdminCoursesPage';
 import AccountSettingsPage from './pages/AccountSettingsPage';
 import PublicProfilePage from './pages/PublicProfilePage';
-import PublishOpportunityPage from './pages/PublishOpportunityPage';
 import SubscriptionPage from './pages/SubscriptionPage';
 
 function Router() {
   const { currentPage } = useNavigation();
 
   switch (currentPage) {
-    case 'auth': return <AuthPage />;
-    case 'profile': return <ProfilePage />;
-    case 'goal': return <GoalPage />;
+    case 'select-user': return <UserSelectPage />;
+    case 'home': return <HomePage />;
+    case 'onboarding': return <OnboardingPage />;
     case 'roadmap': return <RoadmapPage />;
-    case 'marketplace': return <MarketplacePage />;
-    case 'opportunity-detail': return <OpportunityDetailPage />;
-    case 'auction': return <AuctionPage />;
-    case 'trivia': return <TriviaDuelPage />;
+    case 'catalog': return <CourseCatalogPage />;
+    case 'course-detail': return <CourseDetailPage />;
+    case 'my-courses': return <MyCoursesPage />;
+    case 'publish-course': return <PublishCoursePage />;
+    case 'completed-courses': return <CompletedCoursesPage />;
+    case 'trivia': return <TriviaRoomPage />;
+    case 'trivia-questions': return <TriviaQuestionFormPage />;
     case 'admin-dashboard': return <AdminDashboardPage />;
-    case 'admin-themes': return <AdminThemesPage />;
+    case 'admin-courses': return <AdminCoursesPage />;
     case 'account-settings': return <AccountSettingsPage />;
     case 'public-profile': return <PublicProfilePage />;
-    case 'publish-opportunity': return <PublishOpportunityPage />;
     case 'subscription': return <SubscriptionPage />;
-    default: return <AuthPage />;
+    default: return <UserSelectPage />;
   }
 }
 
 export default function App() {
   return (
     <ThemeProvider>
-      <NavigationProvider>
-        <Router />
-      </NavigationProvider>
+      <AppDataProvider>
+        <NavigationProvider>
+          <Router />
+        </NavigationProvider>
+      </AppDataProvider>
     </ThemeProvider>
   );
 }

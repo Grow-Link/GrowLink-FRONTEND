@@ -1,9 +1,10 @@
 import Navbar from '../components/Navbar';
 import { useNavigation } from '../store/NavigationContext';
+import { useAppData } from '../store/AppDataContext';
 import { mockAdminMetrics } from '../services/mockData';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Area, AreaChart,
+  Tooltip, ResponsiveContainer, Area, AreaChart, Legend,
 } from 'recharts';
 
 function KPI({ label, value, sub, trend, accent = false }: {
@@ -17,9 +18,7 @@ function KPI({ label, value, sub, trend, accent = false }: {
       <div>
         <p className={`text-4xl font-display font-bold font-mono tabular-nums ${accent ? 'text-white' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>{value}</p>
         <div className="flex items-center gap-2 mt-1">
-          {trend && (
-            <span className={`text-xs font-semibold ${trend.startsWith('+') ? 'text-[#4CE07E]' : 'text-[#EF4444]'}`}>{trend}</span>
-          )}
+          {trend && <span className={`text-xs font-semibold ${trend.startsWith('+') ? 'text-[#4CE07E]' : 'text-[#EF4444]'}`}>{trend}</span>}
           <span className={`text-xs ${accent ? 'text-[#8BA5C2]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>{sub}</span>
         </div>
       </div>
@@ -34,9 +33,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="text-[#8BA5C2] text-xs font-mono mb-1">{label}</p>
       {payload.map((entry: any) => (
         <p key={entry.name} className="text-sm font-semibold" style={{ color: entry.color }}>
-          {entry.name}: {typeof entry.value === 'number' && entry.value > 1000
-            ? entry.value.toLocaleString()
-            : entry.value}
+          {entry.name}: {typeof entry.value === 'number' && entry.value > 1000 ? entry.value.toLocaleString() : entry.value}
         </p>
       ))}
     </div>
@@ -45,159 +42,109 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function AdminDashboardPage() {
   const { navigate } = useNavigation();
+  const { courses } = useAppData();
   const m = mockAdminMetrics;
+  const activeCourses = courses.filter((c) => c.status === 'active').length;
 
   return (
     <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
       <Navbar />
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 sm:mb-10">
           <div>
             <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Panel de administración</span>
-            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-1">Metricas de plataforma</h1>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-1">Métricas de plataforma</h1>
             <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">Datos al {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
           <button
-            onClick={() => navigate('admin-themes')}
+            onClick={() => navigate('admin-courses')}
             className="self-start text-sm text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254] hover:border-[#0B1F3A] dark:hover:border-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] px-4 py-2 rounded-xl transition-all cursor-pointer"
           >
-            Gestionar temáticas
+            Moderar cursos
           </button>
         </div>
 
-        {/* KPI row — hero KPI + 4 secondary */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          {/* Hero KPI */}
           <div className="col-span-1">
-            <KPI
-              label="Usuarios activos"
-              value={m.activeUsers.toLocaleString()}
-              sub="este mes"
-              trend={`+${m.userGrowthPercent}%`}
-              accent
-            />
+            <KPI label="Usuarios activos" value={m.activeUsers.toLocaleString()} sub="este mes" trend={`+${m.userGrowthPercent}%`} accent />
           </div>
-          <KPI
-            label="Logran su meta"
-            value={`${m.goalAchievementRate}%`}
-            sub="de usuarios registrados"
-            trend="+4.1% vs trimestre anterior"
-          />
-          <KPI
-            label="Ingreso promedio"
-            value={`$${m.avgIncome.toLocaleString()}`}
-            sub="USD/mes por usuario"
-            trend="+12% desde inicio"
-          />
-          <KPI
-            label="Oportunidades activas"
-            value={m.totalOpportunities.toLocaleString()}
-            sub="en marketplace"
-          />
-          <KPI
-            label="Subastas este mes"
-            value="34"
-            sub="completadas"
-            trend="+8 vs mes anterior"
-          />
+          <KPI label="Completan su roadmap" value={`${m.roadmapCompletionRate}%`} sub="de usuarios con roadmap" trend="+3.8% vs trimestre anterior" />
+          <KPI label="Cursos activos" value={String(activeCourses)} sub="en el catálogo" />
+          <KPI label="Salas de trivia ahora" value={String(m.activeTriviaRoomsNow)} sub="en curso" trend="+5 vs hace 1h" />
+          <KPI label="Pico de concurrencia hoy" value={String(m.peakConcurrentToday)} sub="usuarios simultáneos" />
         </div>
 
-        {/* Charts row */}
         <div className="flex flex-col lg:grid lg:grid-cols-[2fr_1fr] gap-6 mb-6">
-          {/* Users growth area chart */}
           <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
               <div>
-                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Crecimiento de usuarios</h3>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">Usuarios activos mensuales — últimos 7 meses</p>
+                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Concurrencia de hoy</h3>
+                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">Usuarios activos y salas de trivia por franja horaria</p>
               </div>
-              <span className="text-sm font-mono font-bold text-[#4CE07E] bg-[#F0FDF4] px-3 py-1 rounded-lg border border-[#BBF7D0]">
-                +23.4%
-              </span>
+              <span className="text-sm font-mono font-bold text-[#4CE07E] bg-[#F0FDF4] px-3 py-1 rounded-lg border border-[#BBF7D0]">Pico {m.peakConcurrentToday}</span>
             </div>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={m.monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="glGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1E73E8" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#12C2A8" stopOpacity={0.01} />
-                  </linearGradient>
-                </defs>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={m.concurrency} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="users"
-                  name="Usuarios"
-                  stroke="#1E73E8"
-                  strokeWidth={2.5}
-                  fill="url(#glGrad)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: '#1E73E8', stroke: '#fff', strokeWidth: 2 }}
-                />
-              </AreaChart>
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="activeUsers" name="Usuarios activos" stroke="#1E73E8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                <Line type="monotone" dataKey="activeTriviaRooms" name="Salas de trivia" stroke="#12C2A8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Goal completions bar */}
           <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
-            <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-1">Metas completadas</h3>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mb-6">Por mes</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={m.monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
+            <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-1">Cursos por categoría</h3>
+            <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mb-6">Distribución del catálogo</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={m.categoryDistribution} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="category" width={110} tick={{ fontSize: 10, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="completions" name="Completadas" fill="#12C2A8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" name="Cursos" fill="#12C2A8" radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Revenue chart + activity feed */}
         <div className="flex flex-col lg:grid lg:grid-cols-[2fr_1fr] gap-6">
           <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
               <div>
-                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Ingresos de plataforma</h3>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">USD mensuales — últimos 7 meses</p>
+                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Cursos completados</h3>
+                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">Por mes — últimos 7 meses</p>
               </div>
-              <p className="text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">
-                $312,000
-                <span className="text-sm font-body font-normal text-[#6B7A99] dark:text-[#8BA5C2] ml-1">Sep</span>
-              </p>
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={m.monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="compGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4CE07E" stopOpacity={0.15} />
                     <stop offset="100%" stopColor="#4CE07E" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="revenue" name="Ingresos ($)" stroke="#4CE07E" strokeWidth={2.5} fill="url(#revGrad)" dot={false} activeDot={{ r: 4, fill: '#4CE07E', stroke: '#fff', strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="completions" name="Completados" stroke="#4CE07E" strokeWidth={2.5} fill="url(#compGrad)" dot={false} activeDot={{ r: 4, fill: '#4CE07E', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Quick activity */}
           <div className="bg-[#0B1F3A] rounded-2xl p-6">
             <h3 className="font-display font-bold text-white text-lg mb-4">Actividad reciente</h3>
             <div className="space-y-3">
               {[
-                { msg: 'Nueva subasta iniciada: Mentoría 1:1 CDO Banca', time: 'hace 4 min', color: '#12C2A8' },
+                { msg: 'Nueva sala de trivia iniciada en Ciencia de Datos', time: 'hace 4 min', color: '#12C2A8' },
                 { msg: '47 nuevos usuarios registrados hoy', time: 'hace 12 min', color: '#4CE07E' },
-                { msg: 'Duelo de trivia completado — 34 jugadores', time: 'hace 28 min', color: '#1E73E8' },
-                { msg: 'Oportunidad "ML Finanzas" agotó sus cupos', time: 'hace 1h', color: '#F59E0B' },
-                { msg: 'Nueva temática "Diseño UX/UI" reactivada', time: 'hace 2h', color: '#8BA5C2' },
+                { msg: 'Sala de trivia finalizada — 6 jugadores', time: 'hace 28 min', color: '#1E73E8' },
+                { msg: 'Curso "Arquitectura de Software" dado de baja', time: 'hace 1h', color: '#F59E0B' },
+                { msg: 'Nuevo curso publicado en Finanzas', time: 'hace 2h', color: '#8BA5C2' },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ backgroundColor: item.color }} />
