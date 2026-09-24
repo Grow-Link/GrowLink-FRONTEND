@@ -2,7 +2,7 @@ import logo from '../imports/logoGrowLink.png';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import LiveIndicator from '../components/LiveIndicator';
-import { SEED_USERS } from '../services/mockData';
+import { SEED_USERS, mockCourses } from '../services/mockData';
 import type { UserRole } from '../types';
 
 const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string }> = {
@@ -61,18 +61,12 @@ export default function UserSelectPage() {
           </p>
         </div>
 
-        <div className="relative z-10 grid grid-cols-3 gap-4">
-          {[
-            { value: '14,800+', label: 'Usuarios activos', accent: '#1E73E8' },
-            { value: '41%', label: 'Roadmaps completados', accent: '#12C2A8' },
-            { value: '14', label: 'Cursos en catálogo', accent: '#4CE07E' },
-          ].map((stat) => (
-            <div key={stat.label} className="gl-card-hover relative overflow-hidden border border-white/10 rounded-xl p-4 bg-white/5 backdrop-blur-sm">
-              <div className="absolute top-0 left-0 w-full h-0.5" style={{ backgroundColor: stat.accent }} />
-              <p className="text-2xl font-display font-bold text-white">{stat.value}</p>
-              <p className="text-xs text-[#8BA5C2] mt-1">{stat.label}</p>
-            </div>
-          ))}
+        <div className="relative z-10 inline-flex">
+          <div className="gl-card-hover relative overflow-hidden border border-white/10 rounded-xl p-4 bg-white/5 backdrop-blur-sm">
+            <div className="absolute top-0 left-0 w-full h-0.5 gl-gradient" />
+            <p className="text-2xl font-mono font-bold text-white">{mockCourses.filter((c) => c.status === 'active').length}</p>
+            <p className="text-xs text-[#8BA5C2] mt-1">Cursos en catálogo</p>
+          </div>
         </div>
       </div>
 

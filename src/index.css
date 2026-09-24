@@ -218,3 +218,39 @@ html.dark .gl-card-hover:hover {
   display: inline-block;
   flex-shrink: 0;
 }
+
+/* Landing page: 3D mouse-tilt hero */
+.gl-perspective {
+  perspective: 1400px;
+}
+.gl-tilt {
+  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform 0.2s ease-out;
+  transform-style: preserve-3d;
+}
+.gl-tilt-layer {
+  transform: translateZ(var(--tz, 0px));
+  transform-style: preserve-3d;
+}
+.gl-cursor-glow {
+  background: radial-gradient(500px circle at var(--glow-x, 50%) var(--glow-y, 50%), rgba(18, 194, 168, 0.16), transparent 60%);
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.gl-marquee {
+  animation: marquee 26s linear infinite;
+}
+.gl-marquee-pause:hover .gl-marquee {
+  animation-play-state: paused;
+}
+
+@keyframes floatCard {
+  0%, 100% { transform: translateY(0) translateZ(var(--tz, 0px)); }
+  50% { transform: translateY(-10px) translateZ(var(--tz, 0px)); }
+}
+.gl-float-card {
+  animation: floatCard 5s ease-in-out infinite;
+}

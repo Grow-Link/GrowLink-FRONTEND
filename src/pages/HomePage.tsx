@@ -18,8 +18,19 @@ export default function HomePage() {
   const { navigate, currentUser } = useNavigation();
   const { profiles, roadmaps, courses, completions, generateRoadmap, roadmapHasStaleCourse, getRelevance } = useAppData();
   const [activeTab, setActiveTab] = useState<'roadmap' | 'catalog' | 'trivia'>('roadmap');
+  const [generatingRoadmap, setGeneratingRoadmap] = useState(false);
 
   if (!currentUser) return null;
+
+  function handleGenerateRoadmap() {
+    if (!currentUser) return;
+    const userId = currentUser.id;
+    setGeneratingRoadmap(true);
+    setTimeout(() => {
+      generateRoadmap(userId);
+      navigate('roadmap');
+    }, 1100);
+  }
   const profile = profiles[currentUser.id];
   const roadmap = roadmaps[currentUser.id];
   const myCompletions = completions.filter((c) => c.userId === currentUser.id);
@@ -95,8 +106,18 @@ export default function HomePage() {
           </div>
 
           <div className="text-center">
-            <Button variant="gradient" size="lg" onClick={() => { generateRoadmap(currentUser.id); navigate('roadmap'); }}>
-              Generar mi roadmap con IA
+            <Button variant="gradient" size="lg" onClick={handleGenerateRoadmap} disabled={generatingRoadmap}>
+              {generatingRoadmap ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generando tu roadmap...
+                </>
+              ) : (
+                'Generar mi roadmap con IA'
+              )}
             </Button>
           </div>
         </div>

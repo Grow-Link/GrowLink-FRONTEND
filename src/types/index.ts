@@ -113,6 +113,7 @@ export interface AdminMetrics {
 }
 
 export type Page =
+  | 'landing'
   | 'select-user'
   | 'home'
   | 'onboarding'

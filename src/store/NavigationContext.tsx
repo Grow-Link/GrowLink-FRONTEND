@@ -4,6 +4,7 @@ import { SEED_USERS } from '../services/mockData';
 import type { Page, SeedUser, UserRole } from '../types';
 
 const PAGE_PATHS: Record<Page, string> = {
+  landing: '/',
   'select-user': '/ingresar',
   home: '/inicio',
   onboarding: '/perfil/completar',
@@ -23,6 +24,7 @@ const PAGE_PATHS: Record<Page, string> = {
 };
 
 const ROUTE_PATTERNS: { page: Page; pattern: string }[] = [
+  { page: 'landing', pattern: '/' },
   { page: 'course-detail', pattern: '/cursos/detalle/:id' },
   { page: 'publish-course', pattern: '/mis-cursos/:id/editar' },
   { page: 'publish-course', pattern: '/mis-cursos/publicar' },
@@ -98,15 +100,13 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const paramId = resolveParamId(location.pathname);
 
   useEffect(() => {
-    if (location.pathname === '/') {
-      routerNavigate(currentUser ? PAGE_PATHS[ROLE_HOME[currentUser.role]] : PAGE_PATHS['select-user'], { replace: true });
-      return;
-    }
     if (!currentUser) {
-      if (currentPage !== 'select-user') routerNavigate(PAGE_PATHS['select-user'], { replace: true });
+      if (currentPage !== 'select-user' && currentPage !== 'landing') {
+        routerNavigate(PAGE_PATHS['select-user'], { replace: true });
+      }
       return;
     }
-    if (currentPage === 'select-user' || !ROLE_ALLOWED[currentUser.role].includes(currentPage)) {
+    if (currentPage === 'select-user' || currentPage === 'landing' || !ROLE_ALLOWED[currentUser.role].includes(currentPage)) {
       routerNavigate(PAGE_PATHS[ROLE_HOME[currentUser.role]], { replace: true });
     }
   }, [location.pathname, currentPage, currentUser, routerNavigate]);

@@ -1,6 +1,7 @@
 import { NavigationProvider, useNavigation } from './store/NavigationContext';
 import { ThemeProvider } from './store/ThemeContext';
 import { AppDataProvider } from './store/AppDataContext';
+import LandingPage from './pages/LandingPage';
 import UserSelectPage from './pages/UserSelectPage';
 import HomePage from './pages/HomePage';
 import OnboardingPage from './pages/OnboardingPage';
@@ -22,6 +23,7 @@ function Router() {
   const { currentPage } = useNavigation();
 
   switch (currentPage) {
+    case 'landing': return <LandingPage />;
     case 'select-user': return <UserSelectPage />;
     case 'home': return <HomePage />;
     case 'onboarding': return <OnboardingPage />;
