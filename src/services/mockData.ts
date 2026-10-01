@@ -2,7 +2,6 @@ import type {
   SeedUser,
   UserProfile,
   Course,
-  Roadmap,
   CourseCompletion,
   TriviaQuestion,
   AdminMetrics,
@@ -104,6 +103,41 @@ export const mockCourses: Course[] = [
     category: 'Liderazgo', level: 'intermedio', skills: ['Liderazgo'], contentUrl: 'https://cursos.growlink.com/liderazgo-equipos',
     prerequisites: [], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-01-28',
   },
+  {
+    id: 'c15', title: 'Visualización de Datos con Power BI', description: 'Dashboards interactivos, modelado de datos y storytelling para comunicar hallazgos a cualquier audiencia.',
+    category: 'Ciencia de Datos', level: 'intermedio', skills: ['Power BI', 'Visualización de datos'], contentUrl: 'https://cursos.growlink.com/power-bi',
+    prerequisites: ['c1'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-04-10',
+  },
+  {
+    id: 'c16', title: 'Ingeniería de Datos y ETL', description: 'Pipelines, orquestación y calidad de datos para dejar información lista para análisis y modelos.',
+    category: 'Ciencia de Datos', level: 'intermedio', skills: ['ETL', 'Pipelines de datos'], contentUrl: 'https://cursos.growlink.com/ingenieria-datos',
+    prerequisites: ['c3'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-04-18',
+  },
+  {
+    id: 'c17', title: 'MLOps: Modelos en Producción', description: 'Despliegue, monitoreo y reentrenamiento de modelos de machine learning a escala.',
+    category: 'Ciencia de Datos', level: 'avanzado', skills: ['MLOps', 'Despliegue de modelos'], contentUrl: 'https://cursos.growlink.com/mlops',
+    prerequisites: ['c4', 'c16'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-05-02',
+  },
+  {
+    id: 'c18', title: 'Big Data con Spark', description: 'Procesamiento distribuido de grandes volúmenes de datos con Apache Spark.',
+    category: 'Ciencia de Datos', level: 'avanzado', skills: ['Spark', 'Big Data'], contentUrl: 'https://cursos.growlink.com/spark',
+    prerequisites: ['c16'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-05-12',
+  },
+  {
+    id: 'c20', title: 'Excel Financiero Avanzado', description: 'Modelos financieros, escenarios y automatización con Excel para decisiones de negocio.',
+    category: 'Finanzas', level: 'intermedio', skills: ['Excel financiero', 'Modelado'], contentUrl: 'https://cursos.growlink.com/excel-financiero',
+    prerequisites: ['c9'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-04-05',
+  },
+  {
+    id: 'c21', title: 'Contabilidad para No Contadores', description: 'Balance, estado de resultados y flujo de caja explicados sin tecnicismos.',
+    category: 'Finanzas', level: 'principiante', skills: ['Contabilidad básica'], contentUrl: 'https://cursos.growlink.com/contabilidad-basica',
+    prerequisites: [], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-03-28',
+  },
+  {
+    id: 'c22', title: 'Gestión de Riesgo Financiero', description: 'Riesgo de mercado, crédito y liquidez: medición, cobertura y reporte.',
+    category: 'Finanzas', level: 'avanzado', skills: ['Gestión de riesgo'], contentUrl: 'https://cursos.growlink.com/gestion-riesgo',
+    prerequisites: ['c10', 'c20'], publisherId: 'p1', publisherName: 'DataFinance Academy', status: 'active', createdAt: '2025-05-20',
+  },
 ];
 
 export const mockProfiles: Record<string, UserProfile> = {
@@ -120,32 +154,6 @@ export const mockProfiles: Record<string, UserProfile> = {
     interests: ['Ciencia de Datos', 'Finanzas'],
     level: 'intermedio',
     updatedAt: '2025-06-10',
-  },
-};
-
-export const mockRoadmaps: Record<string, Roadmap> = {
-  u3: {
-    id: 'r-u3',
-    userId: 'u3',
-    generatedAt: '2025-06-11',
-    nodes: [
-      { id: 'n-c1', courseId: 'c1', tier: 0, status: 'completed' },
-      { id: 'n-c2', courseId: 'c2', tier: 0, status: 'completed' },
-      { id: 'n-c9', courseId: 'c9', tier: 0, status: 'completed' },
-      { id: 'n-c3', courseId: 'c3', tier: 1, status: 'completed' },
-      { id: 'n-c4', courseId: 'c4', tier: 1, status: 'current' },
-      { id: 'n-c10', courseId: 'c10', tier: 1, status: 'available' },
-      { id: 'n-c5', courseId: 'c5', tier: 2, status: 'locked' },
-      { id: 'n-c11', courseId: 'c11', tier: 2, status: 'locked' },
-    ],
-    edges: [
-      { from: 'c1', to: 'c3' },
-      { from: 'c1', to: 'c4' },
-      { from: 'c2', to: 'c4' },
-      { from: 'c9', to: 'c10' },
-      { from: 'c4', to: 'c5' },
-      { from: 'c10', to: 'c11' },
-    ],
   },
 };
 

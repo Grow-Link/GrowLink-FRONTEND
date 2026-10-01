@@ -247,6 +247,22 @@ html.dark .gl-card-hover:hover {
   animation-play-state: paused;
 }
 
+@keyframes cloudDrift {
+  from { transform: translateX(-16px); }
+  to { transform: translateX(22px); }
+}
+.gl-cloud {
+  animation: cloudDrift 16s ease-in-out infinite alternate;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.gl-fade-up {
+  animation: fadeUp 0.16s ease-out;
+}
+
 @keyframes floatCard {
   0%, 100% { transform: translateY(0) translateZ(var(--tz, 0px)); }
   50% { transform: translateY(-10px) translateZ(var(--tz, 0px)); }
