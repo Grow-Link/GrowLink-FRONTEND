@@ -27,7 +27,7 @@ interface PersistedState {
   triviaQuestions: TriviaQuestion[];
 }
 
-const STORAGE_KEY = 'gl_app_data_v2';
+const STORAGE_KEY = 'gl_app_data_v3';
 
 function loadInitial(): PersistedState {
   try {

@@ -27,24 +27,22 @@ const NAV_LINKS = [
 ];
 
 const DEMO_ROADMAP_NODES: RoadmapNode[] = [
-  { id: 'd-c1', courseId: 'c1', tier: 0, status: 'completed' },
-  { id: 'd-c2', courseId: 'c2', tier: 0, status: 'completed' },
-  { id: 'd-c3', courseId: 'c3', tier: 1, status: 'current' },
-  { id: 'd-c15', courseId: 'c15', tier: 1, status: 'available' },
-  { id: 'd-c4', courseId: 'c4', tier: 1, status: 'available' },
-  { id: 'd-c16', courseId: 'c16', tier: 2, status: 'locked' },
-  { id: 'd-c5', courseId: 'c5', tier: 2, status: 'locked' },
-  { id: 'd-c17', courseId: 'c17', tier: 3, status: 'locked' },
+  { id: 'd-sis-1', courseId: 'sis-1', tier: 0, status: 'completed' },
+  { id: 'd-sis-2', courseId: 'sis-2', tier: 0, status: 'completed' },
+  { id: 'd-adm-1', courseId: 'adm-1', tier: 0, status: 'completed' },
+  { id: 'd-sis-3', courseId: 'sis-3', tier: 1, status: 'current' },
+  { id: 'd-sis-4', courseId: 'sis-4', tier: 1, status: 'available' },
+  { id: 'd-adm-3', courseId: 'adm-3', tier: 1, status: 'available' },
+  { id: 'd-sis-5', courseId: 'sis-5', tier: 2, status: 'locked' },
+  { id: 'd-adm-4', courseId: 'adm-4', tier: 2, status: 'locked' },
 ];
 const DEMO_ROADMAP_EDGES: RoadmapEdge[] = [
-  { from: 'c1', to: 'c3' },
-  { from: 'c1', to: 'c15' },
-  { from: 'c1', to: 'c4' },
-  { from: 'c2', to: 'c4' },
-  { from: 'c3', to: 'c16' },
-  { from: 'c4', to: 'c5' },
-  { from: 'c4', to: 'c17' },
-  { from: 'c16', to: 'c17' },
+  { from: 'sis-1', to: 'sis-3' },
+  { from: 'sis-2', to: 'sis-3' },
+  { from: 'sis-1', to: 'sis-4' },
+  { from: 'sis-3', to: 'sis-5' },
+  { from: 'adm-1', to: 'adm-3' },
+  { from: 'adm-3', to: 'adm-4' },
 ];
 
 const STEPS = [

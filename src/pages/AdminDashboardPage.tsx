@@ -99,11 +99,11 @@ export default function AdminDashboardPage() {
           <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
             <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-1">Cursos por categoría</h3>
             <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mb-6">Distribución del catálogo</p>
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={360}>
               <BarChart data={m.categoryDistribution} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="category" width={110} tick={{ fontSize: 10, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="category" width={130} tick={{ fontSize: 10, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="count" name="Cursos" fill="#12C2A8" radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
@@ -140,11 +140,11 @@ export default function AdminDashboardPage() {
             <h3 className="font-display font-bold text-white text-lg mb-4">Actividad reciente</h3>
             <div className="space-y-3">
               {[
-                { msg: 'Nueva sala de trivia iniciada en Ciencia de Datos', time: 'hace 4 min', color: '#12C2A8' },
+                { msg: 'Nueva sala de trivia iniciada en Ingeniería de Sistemas', time: 'hace 4 min', color: '#12C2A8' },
                 { msg: '47 nuevos usuarios registrados hoy', time: 'hace 12 min', color: '#4CE07E' },
                 { msg: 'Sala de trivia finalizada — 6 jugadores', time: 'hace 28 min', color: '#1E73E8' },
-                { msg: 'Curso "Arquitectura de Software" dado de baja', time: 'hace 1h', color: '#F59E0B' },
-                { msg: 'Nuevo curso publicado en Finanzas', time: 'hace 2h', color: '#8BA5C2' },
+                { msg: 'Curso "Ciberseguridad Ofensiva" dado de baja', time: 'hace 1h', color: '#F59E0B' },
+                { msg: 'Nuevo curso publicado en Derecho', time: 'hace 2h', color: '#8BA5C2' },
               ].map((item, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ backgroundColor: item.color }} />
