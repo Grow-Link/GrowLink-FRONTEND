@@ -30,14 +30,21 @@ const DEMO_ROADMAP_NODES: RoadmapNode[] = [
   { id: 'd-c1', courseId: 'c1', tier: 0, status: 'completed' },
   { id: 'd-c2', courseId: 'c2', tier: 0, status: 'completed' },
   { id: 'd-c3', courseId: 'c3', tier: 1, status: 'current' },
+  { id: 'd-c15', courseId: 'c15', tier: 1, status: 'available' },
   { id: 'd-c4', courseId: 'c4', tier: 1, status: 'available' },
+  { id: 'd-c16', courseId: 'c16', tier: 2, status: 'locked' },
   { id: 'd-c5', courseId: 'c5', tier: 2, status: 'locked' },
+  { id: 'd-c17', courseId: 'c17', tier: 3, status: 'locked' },
 ];
 const DEMO_ROADMAP_EDGES: RoadmapEdge[] = [
   { from: 'c1', to: 'c3' },
+  { from: 'c1', to: 'c15' },
   { from: 'c1', to: 'c4' },
   { from: 'c2', to: 'c4' },
+  { from: 'c3', to: 'c16' },
   { from: 'c4', to: 'c5' },
+  { from: 'c4', to: 'c17' },
+  { from: 'c16', to: 'c17' },
 ];
 
 const STEPS = [
@@ -370,8 +377,14 @@ export default function LandingPage() {
               </Button>
             </Reveal>
             <Reveal delay={150}>
-              <div className="bg-[#F7F9FA] dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-4 sm:p-6 shadow-xl shadow-[#1E73E8]/5 dark:shadow-none pointer-events-none select-none">
-                <RoadmapGraph nodes={DEMO_ROADMAP_NODES} edges={DEMO_ROADMAP_EDGES} courses={mockCourses} onSelectCourse={() => {}} />
+              <div className="max-w-[560px] mx-auto rounded-2xl shadow-2xl shadow-[#0B1F3A]/15 dark:shadow-none border border-white dark:border-white/10">
+                <RoadmapGraph
+                  nodes={DEMO_ROADMAP_NODES}
+                  edges={DEMO_ROADMAP_EDGES}
+                  courses={mockCourses}
+                  compact
+                  onSelectCourse={() => navigate('select-user')}
+                />
               </div>
             </Reveal>
           </div>

@@ -86,7 +86,7 @@ export default function RoadmapPage() {
         )}
 
         <div className="flex flex-col lg:grid lg:grid-cols-[1fr_300px] gap-6 lg:gap-8 lg:items-start">
-          <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-4 sm:p-6">
+          <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-2 sm:p-3">
             <RoadmapGraph
               nodes={roadmap.nodes}
               edges={roadmap.edges}

@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import {
   mockCourses,
   mockProfiles,
-  mockRoadmaps,
   mockCompletions,
   mockTriviaQuestions,
 } from '../services/mockData';
@@ -28,7 +27,7 @@ interface PersistedState {
   triviaQuestions: TriviaQuestion[];
 }
 
-const STORAGE_KEY = 'gl_app_data_v1';
+const STORAGE_KEY = 'gl_app_data_v2';
 
 function loadInitial(): PersistedState {
   try {
@@ -40,7 +39,7 @@ function loadInitial(): PersistedState {
   return {
     courses: mockCourses,
     profiles: mockProfiles,
-    roadmaps: mockRoadmaps,
+    roadmaps: { u3: buildRoadmap('u3', mockCourses, mockProfiles.u3, mockCompletions) },
     completions: mockCompletions,
     triviaQuestions: mockTriviaQuestions,
   };
