@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import Badge from '../components/Badge';
 import Tooltip from '../components/Tooltip';
 import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
+import { obtenerCurso } from '../services/cursosServiceApi';
+import type { Course } from '../types';
 
 const LEVEL_LABEL: Record<string, string> = { principiante: 'Principiante', intermedio: 'Intermedio', avanzado: 'Avanzado' };
 const LEVEL_VARIANT: Record<string, 'success' | 'info' | 'warning'> = { principiante: 'success', intermedio: 'info', avanzado: 'warning' };
@@ -12,7 +15,54 @@ export default function CourseDetailPage() {
   const { navigate, paramId, currentUser } = useNavigation();
   const { getCourse, courses, completions, completeCourse, isCourseCompleted } = useAppData();
 
-  const course = paramId ? getCourse(paramId) : undefined;
+  const mockCourse = paramId ? getCourse(paramId) : undefined;
+
+  // El catálogo real (CourseCatalogPage) ya trae cursos de cursos-service con ids
+  // numéricos que no existen en el mock local — si no está en el mock, se busca ahí.
+  // undefined = todavía sin intentar / cargando, null = se buscó y no existe.
+  const [remoteCourse, setRemoteCourse] = useState<Course | null | undefined>(undefined);
+  const [remotePrereqs, setRemotePrereqs] = useState<Course[]>([]);
+
+  useEffect(() => {
+    if (mockCourse || !paramId) {
+      setRemoteCourse(undefined);
+      setRemotePrereqs([]);
+      return;
+    }
+    let ignore = false;
+    setRemoteCourse(undefined);
+    obtenerCurso(paramId)
+      .then(async (c) => {
+        if (ignore) return;
+        setRemoteCourse(c);
+        if (c && c.prerequisites.length > 0) {
+          const results = await Promise.allSettled(c.prerequisites.map((id) => obtenerCurso(id)));
+          if (!ignore) setRemotePrereqs(results.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : [])));
+        }
+      })
+      .catch(() => {
+        if (!ignore) setRemoteCourse(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [paramId, mockCourse]);
+
+  const course = mockCourse ?? remoteCourse;
+
+  if (course === undefined) {
+    return (
+      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24 flex justify-center text-[#12C2A8]">
+          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+      </div>
+    );
+  }
 
   if (!course) {
     return (
@@ -28,7 +78,9 @@ export default function CourseDetailPage() {
 
   const isUser = currentUser?.role === 'user';
   const alreadyCompleted = currentUser ? isCourseCompleted(currentUser.id, course.id) : false;
-  const prereqCourses = course.prerequisites.map((id) => courses.find((c) => c.id === id)).filter(Boolean) as typeof courses;
+  const prereqCourses = mockCourse
+    ? (course.prerequisites.map((id) => courses.find((c) => c.id === id)).filter(Boolean) as typeof courses)
+    : remotePrereqs;
   const completedIds = new Set(completions.filter((c) => c.userId === currentUser?.id).map((c) => c.courseId));
   const allPrereqsDone = prereqCourses.every((p) => completedIds.has(p.id));
   const completionRecord = completions.find((c) => c.userId === currentUser?.id && c.courseId === course.id);

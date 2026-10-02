@@ -10,6 +10,7 @@
 // real difiere, ajusta solo este archivo — la página no necesita cambiar.
 
 import { authorizedFetch, readJson, CURSOS_API } from './backendSession';
+import type { Course, Level } from '../types';
 
 const SERVICIO = 'cursos-service';
 
@@ -46,6 +47,120 @@ export const CATEGORIA_ENUM: Record<CategoriaCurso, string> = {
 export function categoriaDesdeEnum(valor: string): string {
   const entry = Object.entries(CATEGORIA_ENUM).find(([, e]) => e === valor);
   return entry ? entry[0] : valor;
+}
+
+const NIVEL_A_BACKEND: Record<Level, string> = { principiante: 'PRINCIPIANTE', intermedio: 'INTERMEDIO', avanzado: 'AVANZADO' };
+const NIVEL_DESDE_BACKEND: Record<string, Level> = { PRINCIPIANTE: 'principiante', INTERMEDIO: 'intermedio', AVANZADO: 'avanzado' };
+
+interface HabilidadBackend {
+  id: number;
+  nombre: string;
+  categoria: string;
+}
+
+/**
+ * Mapea un CursoResponse de cursos-service al tipo Course del frontend. El
+ * backend no manda nombre del publicador ni fecha de creación — se usa un
+ * placeholder legible y "ahora" respectivamente, ninguno de los dos se usa
+ * para lógica, solo se muestran.
+ */
+function parseCurso(data: any): Course {
+  const habilidades: HabilidadBackend[] = Array.isArray(data?.habilidades) ? data.habilidades : [];
+  const prerequisitoIds: unknown[] = Array.isArray(data?.prerequisitoIds) ? data.prerequisitoIds : [];
+  return {
+    id: String(data?.id),
+    title: String(data?.titulo ?? ''),
+    description: String(data?.descripcion ?? ''),
+    category: categoriaDesdeEnum(String(data?.categoria ?? '')),
+    level: NIVEL_DESDE_BACKEND[data?.nivel] ?? 'principiante',
+    skills: habilidades.map((h) => h.nombre),
+    contentUrl: String(data?.linkContenido ?? ''),
+    prerequisites: prerequisitoIds.map(String),
+    publisherId: String(data?.publicadorUsuarioId ?? ''),
+    publisherName: `Publicador #${data?.publicadorUsuarioId ?? '?'}`,
+    status: data?.activo ? 'active' : 'inactive',
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/** GET /api/cursos — catálogo completo (o filtrado por categoría/nivel si se pasan). */
+export async function listarCatalogo(categoria?: string, nivel?: Level): Promise<Course[]> {
+  const params = new URLSearchParams();
+  if (categoria) params.set('categoria', CATEGORIA_ENUM[categoria as CategoriaCurso] ?? categoria);
+  if (nivel) params.set('nivel', NIVEL_A_BACKEND[nivel]);
+  const qs = params.toString();
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos${qs ? `?${qs}` : ''}` }), SERVICIO);
+  const data = await readJson<unknown>(res, SERVICIO);
+  return Array.isArray(data) ? data.map(parseCurso) : [];
+}
+
+/** GET /api/cursos?publicadorUsuarioId=X — cursos de un publicador específico. */
+export async function listarPorPublicador(publicadorUsuarioId: number): Promise<Course[]> {
+  const res = await authorizedFetch(
+    () => ({ url: `${CURSOS_API}/api/cursos?publicadorUsuarioId=${publicadorUsuarioId}` }),
+    SERVICIO
+  );
+  const data = await readJson<unknown>(res, SERVICIO);
+  return Array.isArray(data) ? data.map(parseCurso) : [];
+}
+
+/** GET /api/cursos/{id} — un curso puntual; null si no existe (404). */
+export async function obtenerCurso(id: string | number): Promise<Course | null> {
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos/${id}` }), SERVICIO);
+  if (res.status === 404) return null;
+  return parseCurso(await readJson<unknown>(res, SERVICIO));
+}
+
+export interface CrearCursoInput {
+  titulo: string;
+  descripcion: string;
+  /** Nombre de categoría como lo muestra el frontend; se convierte al enum del backend aquí. */
+  categoria: string;
+  nivel: Level;
+  /** Nombres de habilidades seleccionadas (no ids — ver nota abajo). */
+  habilidades: string[];
+  linkContenido: string;
+  publicadorUsuarioId: number;
+  prerequisitoIds: number[];
+}
+
+/**
+ * POST /api/cursos — crea el curso. CrearCursoRequest pide habilidadIds (los
+ * ids reales del catálogo de habilidades), pero getHabilidades() solo expone
+ * nombres (lo usa la pantalla para mostrar los chips) — así que acá se vuelve
+ * a pedir /api/habilidades para esa categoría y se resuelven los ids por
+ * nombre, sin tocar getHabilidades ni su contrato.
+ */
+export async function crearCurso(input: CrearCursoInput): Promise<Course> {
+  const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
+
+  const habilidadesRes = await authorizedFetch(
+    () => ({ url: `${CURSOS_API}/api/habilidades?categoria=${encodeURIComponent(categoriaEnum)}` }),
+    SERVICIO
+  );
+  const habilidadesData = await readJson<unknown>(habilidadesRes, SERVICIO);
+  const habilidadesRaw: HabilidadBackend[] = Array.isArray(habilidadesData) ? (habilidadesData as HabilidadBackend[]) : [];
+  const nombresSeleccionados = new Set(input.habilidades);
+  const habilidadIds = habilidadesRaw.filter((h) => nombresSeleccionados.has(h.nombre)).map((h) => h.id);
+
+  const body = {
+    titulo: input.titulo,
+    descripcion: input.descripcion,
+    categoria: categoriaEnum,
+    nivel: NIVEL_A_BACKEND[input.nivel],
+    habilidadIds,
+    linkContenido: input.linkContenido,
+    publicadorUsuarioId: input.publicadorUsuarioId,
+    prerequisitoIds: input.prerequisitoIds,
+  };
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos`,
+      init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    }),
+    SERVICIO
+  );
+  return parseCurso(await readJson<unknown>(res, SERVICIO));
 }
 
 export interface PrerequisitoSugerido {

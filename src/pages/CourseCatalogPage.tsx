@@ -1,19 +1,46 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Navbar from '../components/Navbar';
+import Button from '../components/Button';
 import CourseCard from '../components/CourseCard';
 import HorizontalTabs from '../components/HorizontalTabs';
 import RangeSlider from '../components/RangeSlider';
 import { AccordionSection } from '../components/Accordion';
 import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
+import { listarCatalogo } from '../services/cursosServiceApi';
 import { CATEGORIES, LEVELS } from '../services/mockData';
-import type { Level } from '../types';
+import type { Course, Level } from '../types';
 
 type ViewTab = 'all' | 'roadmap' | 'recommended';
 
 export default function CourseCatalogPage() {
   const { navigate, currentUser } = useNavigation();
-  const { courses, isCourseCompleted, completeCourse, getRelevance, profiles, roadmaps } = useAppData();
+  const { isCourseCompleted, completeCourse, getRelevance, profiles, roadmaps } = useAppData();
+
+  // Catálogo real de cursos-service (antes venía de mockData vía AppDataContext).
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let ignore = false;
+    setCoursesLoading(true);
+    setCoursesError(null);
+    listarCatalogo()
+      .then((data) => {
+        if (!ignore) setCourses(data);
+      })
+      .catch((err: unknown) => {
+        if (!ignore) setCoursesError(err instanceof Error ? err.message : 'No se pudo cargar el catálogo.');
+      })
+      .finally(() => {
+        if (!ignore) setCoursesLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [reloadKey]);
 
   const [viewTab, setViewTab] = useState<ViewTab>('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -67,6 +94,33 @@ export default function CourseCatalogPage() {
         { key: 'recommended', label: 'Recomendados', count: bySearch.filter((c) => getRelevance(c, currentUser?.id) >= 80).length },
       ]
     : [{ key: 'all', label: 'Todos', count: bySearch.length }];
+
+  if (coursesLoading) {
+    return (
+      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24 flex justify-center text-[#12C2A8]">
+          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  if (coursesError) {
+    return (
+      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24">
+          <h1 className="text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-3">No pudimos cargar el catálogo</h1>
+          <p className="text-[#6B7A99] dark:text-[#8BA5C2] mb-6">{coursesError}</p>
+          <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">

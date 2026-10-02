@@ -4,15 +4,16 @@ import Button from '../components/Button';
 import Input from '../components/Input';
 import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
+import { getSession } from '../services/backendSession';
 import { LEVELS } from '../services/mockData';
-import { CATEGORIAS_CURSOS, getHabilidades, sugerirPrerequisitos, type PrerequisitoSugerido } from '../services/cursosServiceApi';
+import { CATEGORIAS_CURSOS, crearCurso, getHabilidades, sugerirPrerequisitos, type PrerequisitoSugerido } from '../services/cursosServiceApi';
 import type { Level } from '../types';
 
 const LEVEL_RANK: Record<Level, number> = { principiante: 0, intermedio: 1, avanzado: 2 };
 
 export default function PublishCoursePage() {
   const { navigate, paramId, currentUser } = useNavigation();
-  const { courses, getCourse, publishCourse, updateCourse } = useAppData();
+  const { courses, getCourse, updateCourse } = useAppData();
 
   const editingCourse = paramId ? getCourse(paramId) : undefined;
   const isEditing = Boolean(editingCourse);
@@ -34,6 +35,9 @@ export default function PublishCoursePage() {
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestModoRespaldo, setSuggestModoRespaldo] = useState<boolean | null>(null);
   const [unmatchedSuggestions, setUnmatchedSuggestions] = useState<PrerequisitoSugerido[]>([]);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (editingCourse && editingCourse.publisherId !== currentUser?.id) {
@@ -102,19 +106,43 @@ export default function PublishCoursePage() {
   }
 
   const canSuggest = title.trim().length > 0 && level !== 'principiante' && !suggestLoading;
-  const canSubmit = title.trim() && description.trim() && contentUrl.trim() && selectedSkills.length > 0;
+  const canSubmit = Boolean(title.trim() && description.trim() && contentUrl.trim() && selectedSkills.length > 0 && !submitting);
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!currentUser || !canSubmit) return;
     if (isEditing && editingCourse) {
+      // Editar sigue sobre el curso local mock — crearCurso() en cursos-service es solo para publicar nuevos.
       updateCourse(editingCourse.id, { title, description, category, level, skills: selectedSkills, contentUrl, prerequisites });
-    } else {
-      publishCourse({
-        title, description, category, level, skills: selectedSkills, contentUrl, prerequisites,
-        publisherId: currentUser.id, publisherName: currentUser.org ?? currentUser.name,
-      });
+      navigate('my-courses');
+      return;
     }
-    navigate('my-courses');
+
+    const session = getSession();
+    if (!session) return;
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      // Los prerequisitos marcados a mano salen del catálogo local (mockData), no de cursos-service,
+      // así que sus ids no son numéricos reales — se descartan y solo se mandan los que sí lo son
+      // (los que vinieron de "Sugerir con IA", que sí son ids reales de cursos-service).
+      const prerequisitoIds = prerequisites.map(Number).filter((n) => Number.isFinite(n));
+      await crearCurso({
+        titulo: title,
+        descripcion: description,
+        categoria: category,
+        nivel: level,
+        habilidades: selectedSkills,
+        linkContenido: contentUrl,
+        publicadorUsuarioId: session.usuarioId,
+        prerequisitoIds,
+      });
+      navigate('my-courses');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'No se pudo publicar el curso.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const categoryOptions = CATEGORIAS_CURSOS.includes(category as (typeof CATEGORIAS_CURSOS)[number])
@@ -310,8 +338,26 @@ export default function PublishCoursePage() {
               )}
             </div>
 
+            {submitError && (
+              <div className="p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+                <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{submitError}</p>
+              </div>
+            )}
+
             <Button variant="gradient" size="lg" className="w-full" disabled={!canSubmit} onClick={handleSubmit}>
-              {isEditing ? 'Guardar cambios' : 'Publicar curso'}
+              {submitting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Publicando...
+                </>
+              ) : isEditing ? (
+                'Guardar cambios'
+              ) : (
+                'Publicar curso'
+              )}
             </Button>
           </div>
 
