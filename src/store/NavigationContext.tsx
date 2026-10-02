@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useNavigate as useRouterNavigate, useLocation, matchPath } from 'react-router-dom';
-import { SEED_USERS } from '../services/mockData';
+import { getSession, SESSION_EXPIRED_EVENT, type BackendSession } from '../services/backendSession';
+import { login as loginBackend, logout as logoutBackend, rolDesdeBackend, type UsuarioQuemado } from '../services/usuariosServiceApi';
 import type { Page, SeedUser, UserRole } from '../types';
 
 const PAGE_PATHS: Record<Page, string> = {
@@ -78,24 +79,44 @@ interface NavigationContextValue {
   navigate: (page: Page, data?: { id?: string }) => void;
   goBack: () => void;
   canGoBack: boolean;
-  login: (userId: string) => void;
+  login: (usuario: UsuarioQuemado) => Promise<void>;
   logout: () => void;
+  /** true cuando la sesión se cerró porque un backend rechazó el token (no por un logout manual). */
+  sessionExpired: boolean;
 }
 
 const NavigationContext = createContext<NavigationContextValue | null>(null);
+
+function userFromSession(session: BackendSession | null): SeedUser | null {
+  if (!session) return null;
+  return {
+    id: String(session.usuarioId),
+    name: session.nombre,
+    role: rolDesdeBackend(session.rol),
+    headline: session.cargo ?? '',
+    org: session.cargo,
+  };
+}
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const routerNavigate = useRouterNavigate();
   const location = useLocation();
   const [navCount, setNavCount] = useState(0);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(() => sessionStorage.getItem('gl_current_user') || null);
+  const [session, setSessionState] = useState<BackendSession | null>(() => getSession());
+  const [sessionExpired, setSessionExpired] = useState(false);
 
+  // Cualquier llamada autenticada que responda 401/403 dispara esto (ver
+  // backendSession.ts) — el token ya no es válido, así que se cierra la sesión.
   useEffect(() => {
-    if (currentUserId) sessionStorage.setItem('gl_current_user', currentUserId);
-    else sessionStorage.removeItem('gl_current_user');
-  }, [currentUserId]);
+    const onExpired = () => {
+      setSessionState(null);
+      setSessionExpired(true);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
 
-  const currentUser = currentUserId ? SEED_USERS.find((u) => u.id === currentUserId) ?? null : null;
+  const currentUser = userFromSession(session);
   const currentPage = resolvePage(location.pathname);
   const paramId = resolveParamId(location.pathname);
 
@@ -111,14 +132,17 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     }
   }, [location.pathname, currentPage, currentUser, routerNavigate]);
 
-  function login(userId: string) {
-    setCurrentUserId(userId);
-    const user = SEED_USERS.find((u) => u.id === userId);
-    if (user) routerNavigate(PAGE_PATHS[ROLE_HOME[user.role]], { replace: true });
+  async function login(usuario: UsuarioQuemado) {
+    const newSession = await loginBackend(usuario);
+    setSessionState(newSession);
+    setSessionExpired(false);
+    routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(newSession.rol)]], { replace: true });
   }
 
   function logout() {
-    setCurrentUserId(null);
+    logoutBackend();
+    setSessionState(null);
+    setSessionExpired(false);
     routerNavigate(PAGE_PATHS['select-user'], { replace: true });
   }
 
@@ -150,6 +174,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         canGoBack: navCount > 0,
         login,
         logout,
+        sessionExpired,
       }}
     >
       {children}

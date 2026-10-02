@@ -2,13 +2,16 @@
 // usaba antes PublishCoursePage (categorías de ejemplo, habilidades en texto libre
 // y la sugerencia de prerequisitos simulada localmente).
 //
-// Ajusta VITE_CURSOS_SERVICE_URL en un .env.local si el servicio no corre en
-// http://localhost:8080. Los endpoints y la forma de la respuesta de
-// /sugerir-prerequisitos están tomados de la especificación que compartiste
-// (Prompt 1); si el contrato real difiere, ajusta solo este archivo — la
-// página no necesita cambiar.
+// cursos-service ya exige el JWT de usuarios-service en estas rutas, así que
+// las llamadas van autenticadas por el proxy de Vite (/api-cursos, ver
+// vite.config.ts y backendSession.ts) en vez de un fetch directo. Los
+// endpoints y la forma de la respuesta de /sugerir-prerequisitos están
+// tomados de la especificación que compartiste (Prompt 1); si el contrato
+// real difiere, ajusta solo este archivo — la página no necesita cambiar.
 
-const BASE_URL = (import.meta.env.VITE_CURSOS_SERVICE_URL ?? 'http://localhost:8080').replace(/\/$/, '');
+import { authorizedFetch, readJson, CURSOS_API } from './backendSession';
+
+const SERVICIO = 'cursos-service';
 
 export const CATEGORIAS_CURSOS = [
   'Ingeniería de Sistemas',
@@ -55,30 +58,16 @@ export interface SugerenciaPrerequisitos {
   modoRespaldo: boolean;
 }
 
-async function parseJsonOrThrow(res: Response, label: string) {
-  if (!res.ok) {
-    throw new Error(`${label} respondió ${res.status}`);
-  }
-  try {
-    return await res.json();
-  } catch {
-    throw new Error(`${label} devolvió una respuesta inválida`);
-  }
-}
-
-async function request(input: RequestInfo, init: RequestInit | undefined, label: string) {
-  let res: Response;
-  try {
-    res = await fetch(input, init);
-  } catch {
-    throw new Error(`No se pudo conectar con cursos-service (${BASE_URL}). ¿Está corriendo?`);
-  }
-  return parseJsonOrThrow(res, label);
-}
-
 /** GET /api/habilidades?categoria=X — catálogo cerrado de habilidades para esa categoría. */
 export async function getHabilidades(categoria: string, signal?: AbortSignal): Promise<string[]> {
-  const data = await request(`${BASE_URL}/api/habilidades?categoria=${encodeURIComponent(categoria)}`, { signal }, 'cursos-service /api/habilidades');
+  // cursos-service espera el enum (INGENIERIA_SISTEMAS), no el nombre que muestra el frontend —
+  // si se manda el nombre tal cual, Spring no puede convertirlo y responde 403, no 400.
+  const categoriaEnum = CATEGORIA_ENUM[categoria as CategoriaCurso] ?? categoria;
+  const res = await authorizedFetch(
+    () => ({ url: `${CURSOS_API}/api/habilidades?categoria=${encodeURIComponent(categoriaEnum)}`, init: { signal } }),
+    SERVICIO
+  );
+  const data = await readJson<any>(res, SERVICIO);
 
   const raw = Array.isArray(data) ? data : Array.isArray(data?.habilidades) ? data.habilidades : [];
   return raw.map((item: unknown) => (typeof item === 'string' ? item : (item as any)?.nombre ?? (item as any)?.habilidad ?? String(item)));
@@ -93,11 +82,20 @@ export async function sugerirPrerequisitos(
   input: { categoria: string; nivel: string; titulo: string },
   signal?: AbortSignal
 ): Promise<SugerenciaPrerequisitos> {
-  const data = await request(
-    `${BASE_URL}/api/cursos/sugerir-prerequisitos`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal },
-    'cursos-service /api/cursos/sugerir-prerequisitos'
+  // Mismo caso que getHabilidades: categoria y nivel van como el enum del backend, no como se muestran en la UI.
+  const body = {
+    ...input,
+    categoria: CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria,
+    nivel: input.nivel.toUpperCase(),
+  };
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos/sugerir-prerequisitos`,
+      init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal },
+    }),
+    SERVICIO
   );
+  const data = await readJson<any>(res, SERVICIO);
 
   const raw = Array.isArray(data?.prerequisitos) ? data.prerequisitos : Array.isArray(data) ? data : [];
   const prerequisitos: PrerequisitoSugerido[] = raw.map((item: unknown) => {

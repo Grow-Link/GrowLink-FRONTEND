@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import ProgressBar from '../components/ProgressBar';
@@ -6,6 +6,10 @@ import CheckpointPath from '../components/CheckpointPath';
 import HorizontalTabs from '../components/HorizontalTabs';
 import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
+import { getEstadoHome, getPerfil, type EstadoHome, type Perfil } from '../services/usuariosServiceApi';
+import { fetchRoadmap, generarRoadmap, nivelLabel, type RoadmapBackendData } from '../services/roadmapApi';
+import { categoriaDesdeEnum } from '../services/cursosServiceApi';
+import { buildRoadmapGraph } from '../utils/roadmapGraph';
 
 const CHECKPOINTS = [{ label: 'Tus metas' }, { label: 'Tus intereses' }, { label: 'Tu nivel' }];
 const HOME_TABS = [
@@ -14,29 +18,107 @@ const HOME_TABS = [
   { key: 'trivia', label: 'Trivia' },
 ];
 
+function Spinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
 export default function HomePage() {
   const { navigate, currentUser } = useNavigation();
-  const { profiles, roadmaps, courses, completions, generateRoadmap, roadmapHasStaleCourse, getRelevance } = useAppData();
+  const { courses, completions, getRelevance } = useAppData();
   const [activeTab, setActiveTab] = useState<'roadmap' | 'catalog' | 'trivia'>('roadmap');
-  const [generatingRoadmap, setGeneratingRoadmap] = useState(false);
+
+  // undefined = cargando por primera vez
+  const [estado, setEstado] = useState<EstadoHome | undefined>(undefined);
+  const [perfil, setPerfil] = useState<Perfil | undefined>(undefined);
+  const [estadoError, setEstadoError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [roadmapData, setRoadmapData] = useState<RoadmapBackendData | null | undefined>(undefined);
+  const [roadmapError, setRoadmapError] = useState<string | null>(null);
+
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // HU-01/HU-10: qué variante del Home mostrar viene de usuarios-service, no de un estado local simulado.
+  useEffect(() => {
+    if (!currentUser) return;
+    let ignore = false;
+    setEstadoError(null);
+    Promise.all([getEstadoHome(), getPerfil()])
+      .then(([e, p]) => {
+        if (ignore) return;
+        setEstado(e);
+        setPerfil(p);
+      })
+      .catch((err: unknown) => {
+        if (!ignore) setEstadoError(err instanceof Error ? err.message : 'No se pudo cargar tu estado.');
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [currentUser, reloadKey]);
+
+  useEffect(() => {
+    if (estado?.estado !== 'CON_ROADMAP') return;
+    let ignore = false;
+    setRoadmapError(null);
+    fetchRoadmap()
+      .then((d) => {
+        if (!ignore) setRoadmapData(d);
+      })
+      .catch((err: unknown) => {
+        if (!ignore) setRoadmapError(err instanceof Error ? err.message : 'No se pudo cargar tu roadmap.');
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [estado, reloadKey]);
 
   if (!currentUser) return null;
 
-  function handleGenerateRoadmap() {
-    if (!currentUser) return;
-    const userId = currentUser.id;
-    setGeneratingRoadmap(true);
-    setTimeout(() => {
-      generateRoadmap(userId);
-      navigate('roadmap');
-    }, 1100);
+  async function handleGenerateRoadmap() {
+    if (!perfil) return;
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      await generarRoadmap({ goals: perfil.metas ?? '', interests: perfil.intereses, level: perfil.nivel ?? 'principiante' });
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'No se pudo generar el roadmap.');
+    } finally {
+      setGenerating(false);
+    }
   }
-  const profile = profiles[currentUser.id];
-  const roadmap = roadmaps[currentUser.id];
+
   const myCompletions = completions.filter((c) => c.userId === currentUser.id);
 
+  // ─── cargando / error al pedir el estado del Home ──────────
+  if (estado === undefined) {
+    return (
+      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24">
+          {estadoError ? (
+            <>
+              <h1 className="text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-3">No pudimos cargar tu estado</h1>
+              <p className="text-[#6B7A99] dark:text-[#8BA5C2] mb-6">{estadoError}</p>
+              <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+            </>
+          ) : (
+            <div className="flex justify-center text-[#12C2A8]"><Spinner /></div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ─── VARIANT 1: sin perfil ──────────────────────────────────
-  if (!profile) {
+  if (estado.estado === 'SIN_PERFIL') {
     return (
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
         <Navbar />
@@ -66,7 +148,7 @@ export default function HomePage() {
   }
 
   // ─── VARIANT 2: perfil listo, roadmap sin generar ──────────
-  if (!roadmap) {
+  if (estado.estado === 'CON_PERFIL_SIN_ROADMAP') {
     return (
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
         <Navbar />
@@ -85,40 +167,42 @@ export default function HomePage() {
             <CheckpointPath checkpoints={CHECKPOINTS} completedCount={3} />
           </div>
 
-          <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6 sm:p-8 mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Tu perfil</h2>
-              <button onClick={() => navigate('onboarding')} className="text-sm text-[#1E73E8] font-semibold hover:underline cursor-pointer">
-                Editar
-              </button>
-            </div>
-            <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] leading-relaxed mb-4">{profile.goals}</p>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {profile.interests.map((i) => (
-                <span key={i} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254]">
-                  {i}
+          {perfil && (
+            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6 sm:p-8 mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Tu perfil</h2>
+                <button onClick={() => navigate('onboarding')} className="text-sm text-[#1E73E8] font-semibold hover:underline cursor-pointer">
+                  Editar
+                </button>
+              </div>
+              {perfil.metas && <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] leading-relaxed mb-4">{perfil.metas}</p>}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {perfil.intereses.map((i) => (
+                  <span key={i} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254]">
+                    {i}
+                  </span>
+                ))}
+              </div>
+              {perfil.nivel && (
+                <span className="inline-flex text-xs font-bold px-2.5 py-1 rounded-full bg-[#12C2A8]/10 text-[#0F766E] dark:text-[#2DD4BF] border border-[#12C2A8]/30 capitalize">
+                  Nivel {perfil.nivel}
                 </span>
-              ))}
+              )}
             </div>
-            <span className="inline-flex text-xs font-bold px-2.5 py-1 rounded-full bg-[#12C2A8]/10 text-[#0F766E] dark:text-[#2DD4BF] border border-[#12C2A8]/30 capitalize">
-              Nivel {profile.level}
-            </span>
-          </div>
+          )}
 
           <div className="text-center">
-            <Button variant="gradient" size="lg" onClick={handleGenerateRoadmap} disabled={generatingRoadmap}>
-              {generatingRoadmap ? (
+            <Button variant="gradient" size="lg" onClick={handleGenerateRoadmap} disabled={generating}>
+              {generating ? (
                 <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                  <Spinner />
                   Generando tu roadmap...
                 </>
               ) : (
                 'Generar mi roadmap con IA'
               )}
             </Button>
+            {generateError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] mt-4">{generateError}</p>}
           </div>
         </div>
       </div>
@@ -126,12 +210,12 @@ export default function HomePage() {
   }
 
   // ─── VARIANT 3: roadmap generado ───────────────────────────
-  const totalNodes = roadmap.nodes.length;
-  const completedNodes = roadmap.nodes.filter((n) => n.status === 'completed').length;
+  const graph = roadmapData ? buildRoadmapGraph(roadmapData.roadmap.cursos, roadmapData.completados, roadmapData.inactivos) : null;
+  const totalNodes = graph?.nodes.length ?? 0;
+  const completedNodes = graph?.nodes.filter((n) => n.estado === 'completed').length ?? 0;
   const progressPct = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0;
-  const currentNode = roadmap.nodes.find((n) => n.status === 'current');
-  const currentCourse = currentNode ? courses.find((c) => c.id === currentNode.courseId) : undefined;
-  const stale = roadmapHasStaleCourse(currentUser.id);
+  const currentNode = graph?.nodes.find((n) => n.estado === 'current');
+  const stale = graph?.nodes.some((n) => n.inactivo && n.estado !== 'completed') ?? false;
 
   return (
     <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
@@ -155,14 +239,20 @@ export default function HomePage() {
       </div>
 
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+        {roadmapError && (
+          <div className="mb-6 rounded-2xl border border-[#FECACA] dark:border-[#4C1D1D] bg-[#FEF2F2] dark:bg-[#2A1111] p-4 text-sm text-[#DC2626] dark:text-[#F87171]">
+            No se pudo cargar el detalle de tu roadmap: {roadmapError}
+          </div>
+        )}
+
         {stale && (
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#F59E0B]/30 bg-[#FFFBEB] dark:bg-[#3A2A0D] p-5">
             <div>
               <p className="font-display font-bold text-[#B45309] dark:text-[#FBBF24]">Tu roadmap tiene un curso que ya no está disponible</p>
               <p className="text-sm text-[#92601C] dark:text-[#F3D08A] mt-1">Regenera tu roadmap para reemplazarlo por una alternativa activa.</p>
             </div>
-            <Button variant="secondary" onClick={() => generateRoadmap(currentUser.id)} className="self-start sm:self-auto shrink-0">
-              Regenerar roadmap
+            <Button variant="secondary" onClick={handleGenerateRoadmap} disabled={generating} className="self-start sm:self-auto shrink-0">
+              {generating ? <><Spinner /> Regenerando...</> : 'Regenerar roadmap'}
             </Button>
           </div>
         )}
@@ -171,7 +261,7 @@ export default function HomePage() {
 
         <div className="flex flex-col lg:grid lg:grid-cols-[1fr_340px] gap-6 lg:gap-8">
           <div className="space-y-6">
-            {activeTab === 'roadmap' && (currentCourse ? (
+            {activeTab === 'roadmap' && (currentNode ? (
               <div className="gl-glow-teal relative overflow-hidden rounded-2xl bg-[#0B1F3A] p-6 sm:p-8">
                 <div className="gl-float absolute top-0 right-0 w-56 h-56 gl-gradient opacity-20 blur-3xl translate-x-1/3 -translate-y-1/3" />
                 <div className="relative z-10">
@@ -179,22 +269,20 @@ export default function HomePage() {
                     <span className="w-1.5 h-1.5 rounded-full bg-[#4CE07E] live-pulse" />
                     Curso actual en tu roadmap
                   </span>
-                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-white leading-snug mb-2">{currentCourse.title}</h2>
-                  <p className="text-[#8BA5C2] text-sm leading-relaxed mb-5 max-w-xl">{currentCourse.description}</p>
-                  <div className="flex flex-wrap gap-2 mb-6">
-                    {currentCourse.skills.map((s) => (
-                      <span key={s} className="text-xs px-2.5 py-1 rounded-lg bg-white/10 text-white border border-white/10">{s}</span>
-                    ))}
-                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-white leading-snug mb-2">{currentNode.titulo}</h2>
+                  <p className="text-[#8BA5C2] text-sm leading-relaxed mb-6 max-w-xl">
+                    {categoriaDesdeEnum(currentNode.categoria)} · {nivelLabel(currentNode.nivel)} · Etapa {currentNode.etapa + 1}
+                  </p>
                   <div className="flex flex-wrap gap-3">
-                    <Button variant="gradient" onClick={() => navigate('course-detail', { id: currentCourse.id })}>
-                      Ir al curso
-                    </Button>
-                    <Button variant="ghost" className="!text-[#8BA5C2] hover:!text-white hover:!bg-white/10" onClick={() => navigate('roadmap')}>
+                    <Button variant="gradient" onClick={() => navigate('roadmap')}>
                       Ver roadmap completo
                     </Button>
                   </div>
                 </div>
+              </div>
+            ) : roadmapData === undefined ? (
+              <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-8 text-center">
+                <div className="flex justify-center text-[#12C2A8]"><Spinner /></div>
               </div>
             ) : (
               <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-8 text-center">
@@ -263,16 +351,18 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-4">
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5">
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Tu perfil</p>
-              <p className="text-sm text-[#0B1F3A] dark:text-[#E2EBF6] leading-relaxed mb-3">{profile.goals}</p>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {profile.interests.map((i) => (
-                  <span key={i} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">{i}</span>
-                ))}
+            {perfil && (
+              <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5">
+                <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Tu perfil</p>
+                {perfil.metas && <p className="text-sm text-[#0B1F3A] dark:text-[#E2EBF6] leading-relaxed mb-3">{perfil.metas}</p>}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {perfil.intereses.map((i) => (
+                    <span key={i} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">{i}</span>
+                  ))}
+                </div>
+                <button onClick={() => navigate('onboarding')} className="text-xs text-[#1E73E8] font-semibold hover:underline cursor-pointer">Editar perfil</button>
               </div>
-              <button onClick={() => navigate('onboarding')} className="text-xs text-[#1E73E8] font-semibold hover:underline cursor-pointer">Editar perfil</button>
-            </div>
+            )}
 
             <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5">
               <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Últimos completados</p>

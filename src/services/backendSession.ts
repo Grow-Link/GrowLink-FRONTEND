@@ -2,26 +2,19 @@
 // cursos-service lo valida). Las peticiones van por el proxy de Vite
 // (/api-usuarios, /api-cursos, ver vite.config.ts), así no hace falta CORS.
 //
-// El login del frontend todavía es simulado (SEED_USERS en mockData), así que
-// mientras tanto cada usuario simulado se conecta con el usuario de prueba del
-// backend que tiene su mismo rol (GET /api/auth/usuarios). Cuando el login real
-// exista, basta con reemplazar `login` aquí.
-
-import type { UserRole } from '../types';
+// El login ya es real: el usuario se elige en UserSelectPage a partir de
+// GET /api/auth/usuarios y la sesión queda guardada aquí (un solo usuario
+// activo a la vez, no uno por rol simulado).
 
 export const USUARIOS_API = '/api-usuarios';
 export const CURSOS_API = '/api-cursos';
-
-const ROL_BACKEND: Record<UserRole, string> = {
-  user: 'USUARIO',
-  publisher: 'PUBLICADOR',
-  admin: 'ADMIN',
-};
 
 export interface BackendSession {
   token: string;
   usuarioId: number;
   nombre: string;
+  rol: string;
+  cargo?: string;
 }
 
 export class BackendError extends Error {
@@ -34,18 +27,37 @@ export class BackendError extends Error {
   }
 }
 
-const storageKey = (role: UserRole) => `gl_backend_session_${role}`;
+/** El token guardado ya no es válido (expiró, o el servicio se reinició con otro secreto). */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Tu sesión expiró o ya no es válida. Vuelve a iniciar sesión.');
+    this.name = 'SessionExpiredError';
+  }
+}
 
-function readStored(role: UserRole): BackendSession | null {
+const STORAGE_KEY = 'gl_backend_session';
+
+/** Se dispara cuando una llamada autenticada responde 401/403 — quien escuche esto debe volver a la pantalla de login. */
+export const SESSION_EXPIRED_EVENT = 'gl:session-expired';
+
+export function getSession(): BackendSession | null {
   try {
-    const raw = sessionStorage.getItem(storageKey(role));
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as BackendSession) : null;
   } catch {
     return null;
   }
 }
 
-async function send(url: string, init: RequestInit | undefined, servicio: string): Promise<Response> {
+export function setSession(session: BackendSession): void {
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+}
+
+export function clearSession(): void {
+  sessionStorage.removeItem(STORAGE_KEY);
+}
+
+export async function send(url: string, init: RequestInit | undefined, servicio: string): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch {
@@ -67,61 +79,33 @@ export async function readJson<T>(res: Response, servicio: string): Promise<T> {
   }
 }
 
-async function login(role: UserRole): Promise<BackendSession> {
-  const usuarios = await readJson<{ id: number; nombre: string; rol: string }[]>(
-    await send(`${USUARIOS_API}/api/auth/usuarios`, undefined, 'usuarios-service'),
-    'usuarios-service'
-  );
-  const usuario = usuarios.find((u) => u.rol === ROL_BACKEND[role]);
-  if (!usuario) {
-    throw new BackendError(`usuarios-service no tiene un usuario de prueba con rol ${ROL_BACKEND[role]}`);
-  }
-
-  const { token } = await readJson<{ token: string }>(
-    await send(
-      `${USUARIOS_API}/api/auth/login`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuarioId: usuario.id }) },
-      'usuarios-service'
-    ),
-    'usuarios-service'
-  );
-
-  const session = { token, usuarioId: usuario.id, nombre: usuario.nombre };
-  sessionStorage.setItem(storageKey(role), JSON.stringify(session));
-  return session;
-}
-
-export async function getBackendSession(role: UserRole): Promise<BackendSession> {
-  return readStored(role) ?? login(role);
-}
-
 export interface AuthorizedRequest {
   url: string;
   init?: RequestInit;
 }
 
 /**
- * fetch con el token del usuario. Si el servicio rechaza el token (expiró, o se
- * reinició con otro GROWLINK_JWT_SECRET) se vuelve a iniciar sesión una vez y se
- * reintenta. cursos-service responde 403 (no 401) cuando falta el token.
- *
- * La petición se arma a partir de la sesión (`build`) para que, si hubo que
- * volver a iniciar sesión, el usuarioId de la URL/body sea el de la sesión nueva.
+ * fetch con el token de la sesión activa. Si el servicio rechaza el token
+ * (401 o 403 — cursos-service responde 403 cuando falta/vence el token) la
+ * sesión se borra y se dispara SESSION_EXPIRED_EVENT para que la UI regrese
+ * al login, en vez de reintentar en silencio con otra identidad.
  */
 export async function authorizedFetch(
-  role: UserRole,
   build: (session: BackendSession) => AuthorizedRequest,
   servicio = 'cursos-service'
-): Promise<{ res: Response; session: BackendSession }> {
-  const attempt = async (session: BackendSession) => {
-    const { url, init = {} } = build(session);
-    const headers = new Headers(init.headers);
-    headers.set('Authorization', `Bearer ${session.token}`);
-    return { res: await send(url, { ...init, headers }, servicio), session };
-  };
+): Promise<Response> {
+  const session = getSession();
+  if (!session) throw new SessionExpiredError();
 
-  const first = await attempt(await getBackendSession(role));
-  if (first.res.status !== 401 && first.res.status !== 403) return first;
-  return attempt(await login(role));
+  const { url, init = {} } = build(session);
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${session.token}`);
+  const res = await send(url, { ...init, headers }, servicio);
+
+  if (res.status === 401 || res.status === 403) {
+    clearSession();
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    throw new SessionExpiredError();
+  }
+  return res;
 }
-

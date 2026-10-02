@@ -27,6 +27,14 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api-usuarios': proxyTo(env.USUARIOS_SERVICE_URL ?? 'http://localhost:8080', '/api-usuarios'),
         '/api-cursos': proxyTo(env.CURSOS_SERVICE_URL ?? 'http://localhost:8086', '/api-cursos'),
+        '/api-trivia': proxyTo(env.TRIVIA_SERVICE_URL ?? 'http://localhost:8085', '/api-trivia'),
+        // STOMP nativo sobre WS (sin SockJS) — mismo truco de proxy que los fetch, pero con upgrade de websocket.
+        '/ws-trivia': {
+          target: env.TRIVIA_SERVICE_URL ?? 'http://localhost:8085',
+          ws: true,
+          changeOrigin: true,
+          rewrite: (p: string) => p.replace(/^\/ws-trivia/, '/ws'),
+        },
       },
     },
   }

@@ -3,7 +3,7 @@ import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import PrerequisiteGraph, { ESTADO_LABEL, GraphLegend } from '../components/PrerequisiteGraph';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
+import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap, nivelLabel, type RoadmapBackendData } from '../services/roadmapApi';
 import { categoriaDesdeEnum } from '../services/cursosServiceApi';
 import { buildRoadmapGraph, type GraphNode } from '../utils/roadmapGraph';
@@ -39,25 +39,26 @@ function CenteredMessage({ title, children }: { title: string; children: ReactNo
 
 export default function RoadmapPage() {
   const { navigate, currentUser } = useNavigation();
-  const { profiles } = useAppData();
 
   // undefined = cargando por primera vez, null = el usuario todavía no tiene roadmap
   const [data, setData] = useState<RoadmapBackendData | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Perfil | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const role = currentUser?.role;
-
   useEffect(() => {
-    if (!role) return;
+    if (!currentUser) return;
     let ignore = false;
     setLoadError(null);
-    fetchRoadmap(role)
-      .then((d) => {
-        if (!ignore) setData(d);
+    Promise.all([fetchRoadmap(), getPerfil()])
+      .then(([d, p]) => {
+        if (!ignore) {
+          setData(d);
+          setProfile(p);
+        }
       })
       .catch((e: Error) => {
         if (!ignore) setLoadError(e.message);
@@ -65,7 +66,7 @@ export default function RoadmapPage() {
     return () => {
       ignore = true;
     };
-  }, [role, reloadKey]);
+  }, [currentUser, reloadKey]);
 
   // Escape cierra el detalle desde cualquier parte de la página (no solo desde el grafo)
   useEffect(() => {
@@ -82,18 +83,18 @@ export default function RoadmapPage() {
     [data]
   );
 
-  if (!currentUser || !role) return null;
-  const profile = profiles[currentUser.id];
+  if (!currentUser) return null;
+  const hasProfile = profile?.completo ?? false;
 
   async function handleGenerate() {
-    if (!profile) {
+    if (!profile || !hasProfile) {
       navigate('onboarding');
       return;
     }
     setGenerating(true);
     setGenerateError(null);
     try {
-      await generarRoadmap(role!, profile);
+      await generarRoadmap({ goals: profile.metas ?? '', interests: profile.intereses, level: profile.nivel ?? 'principiante' });
       setSelectedId(null);
       setReloadKey((k) => k + 1);
     } catch (e) {
@@ -126,11 +127,11 @@ export default function RoadmapPage() {
     return (
       <CenteredMessage title="Aún no tienes un roadmap">
         <p className="text-[#6B7A99] dark:text-[#8BA5C2] mb-6">
-          {profile
+          {hasProfile
             ? 'Genera tu camino de cursos a partir de tus metas, intereses y nivel.'
             : 'Completa tu perfil primero para que podamos generar tu camino de cursos.'}
         </p>
-        {profile ? (
+        {hasProfile ? (
           <Button variant="gradient" onClick={handleGenerate} disabled={generating}>
             {generating ? <><Spinner /> Generando…</> : 'Generar mi roadmap'}
           </Button>
@@ -166,9 +167,6 @@ export default function RoadmapPage() {
                 ? 'Sin cursos por ahora'
                 : `${totalNodes} ${totalNodes === 1 ? 'curso' : 'cursos'} en ${graph.etapas} ${graph.etapas === 1 ? 'etapa' : 'etapas'}`}{' '}
               · generado {timeAgo(data.roadmap.creadoEn)}
-            </p>
-            <p className="text-xs font-mono text-[#6B7A99] dark:text-[#8BA5C2] mt-1">
-              cursos-service · usuario de prueba: {data.session.nombre}
             </p>
           </div>
           <div className="flex flex-col items-start sm:items-end gap-2">

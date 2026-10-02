@@ -3,25 +3,79 @@ import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import LiveIndicator from '../components/LiveIndicator';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
+import { getSession } from '../services/backendSession';
+import { crearSala, obtenerSala, type Sala } from '../services/triviaServiceApi';
+import { TriviaSocket, type ParticipanteMsg, type SalaMensaje } from '../services/triviaSocket';
 import { CATEGORIES } from '../services/mockData';
-import { useTimer } from '../hooks/useTimer';
 import type { TriviaParticipant, TriviaQuestionCount, TriviaSecondsPerQuestion } from '../types';
+
+// HU-etapa3: sala de trivia real contra trivia-service. POST/GET /api/salas
+// para crear/consultar la sala; todo lo demás (unirse, iniciar, preguntas,
+// leaderboard, resultados) va por STOMP sobre WS — ver triviaSocket.ts.
+// trivia-service nunca manda la respuesta correcta en la pregunta (anti-trampa),
+// así que al responder no se puede pintar la opción en verde/rojo: solo se
+// marca cuál elegiste, y el puntaje real llega después por LEADERBOARD.
 
 type Stage = 'lobby' | 'create' | 'join' | 'waiting' | 'playing' | 'result';
 
 const QUESTION_COUNTS: TriviaQuestionCount[] = [5, 10, 15];
 const SECONDS_OPTIONS: TriviaSecondsPerQuestion[] = [10, 15, 20];
-const BOT_NAMES = ['Sofía L.', 'Marco A.', 'Diego C.', 'Camila R.', 'Luis F.', 'Andrea P.'];
 
-const OPEN_ROOMS = [
-  { code: 'GL-7231', host: 'Camila R.', category: CATEGORIES[0], participants: 3 },
-  { code: 'GL-4098', host: 'Diego C.', category: CATEGORIES[2], participants: 2 },
-  { code: 'GL-1856', host: 'Luis F.', category: CATEGORIES[1], participants: 4 },
-];
+type PreguntaMsg = Extract<SalaMensaje, { type: 'PREGUNTA' }>;
 
-function makeRoomCode() {
-  return `GL-${Math.floor(1000 + Math.random() * 9000)}`;
+interface RankingItem {
+  usuarioId: number;
+  nombre: string;
+  score: number;
+}
+
+// El contrato no fija el shape exacto de cada item de `ranking` — se parsea
+// probando varios nombres posibles, igual que el resto de clientes del proyecto.
+function parseRankingItem(item: unknown): RankingItem {
+  const o = item as any;
+  return {
+    usuarioId: Number(o?.usuarioId ?? o?.id ?? -1),
+    nombre: String(o?.nombre ?? o?.name ?? '???'),
+    score: Number(o?.puntaje ?? o?.puntuacion ?? o?.score ?? o?.puntos ?? 0),
+  };
+}
+
+// SALA_UPDATE no dice quién es el anfitrión entre los participantes — se asume
+// que es quien aparece primero (quien crea la sala es, en la práctica, el
+// primero en mandar "unirse"). Da igual para habilitar "Iniciar sala": eso se
+// controla con el `isHost` local de quien creó la sala, no con esta lista.
+function mergeParticipantes(prev: TriviaParticipant[], llegaron: ParticipanteMsg[], miUsuarioId: number): TriviaParticipant[] {
+  const porId = new Map(prev.map((p) => [p.id, p]));
+  return llegaron.map((m, i) => {
+    const id = String(m.usuarioId);
+    const existente = porId.get(id);
+    return {
+      id,
+      name: m.nombre,
+      score: existente?.score ?? 0,
+      streak: existente?.streak ?? 0,
+      lastGain: existente?.lastGain ?? 0,
+      isHost: i === 0,
+      isCurrentUser: m.usuarioId === miUsuarioId,
+    };
+  });
+}
+
+function mergeLeaderboard(prev: TriviaParticipant[], ranking: unknown[], miUsuarioId: number): TriviaParticipant[] {
+  const porId = new Map(prev.map((p) => [p.id, p]));
+  return ranking.map(parseRankingItem).map((r, i) => {
+    const id = String(r.usuarioId);
+    const existente = porId.get(id);
+    return {
+      id,
+      name: r.nombre !== '???' ? r.nombre : (existente?.name ?? '???'),
+      score: r.score,
+      streak: existente?.streak ?? 0,
+      lastGain: existente ? r.score - existente.score : 0,
+      isHost: existente?.isHost ?? i === 0,
+      isCurrentUser: r.usuarioId === miUsuarioId,
+    };
+  });
 }
 
 function PositionBadge({ delta }: { delta: number }) {
@@ -37,127 +91,212 @@ function PositionBadge({ delta }: { delta: number }) {
   );
 }
 
+function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={`${className} animate-spin`} fill="none" viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
 export default function TriviaRoomPage() {
   const { navigate, currentUser } = useNavigation();
-  const { triviaQuestions } = useAppData();
+  const session = getSession();
 
   const [stage, setStage] = useState<Stage>('lobby');
   const [isHost, setIsHost] = useState(false);
-  const [roomCode, setRoomCode] = useState('');
+  const [sala, setSala] = useState<Sala | null>(null);
 
-  const [category, setCategory] = useState('');
+  const [createCategory, setCreateCategory] = useState('');
   const [numQuestions, setNumQuestions] = useState<TriviaQuestionCount>(10);
   const [secondsPerQuestion, setSecondsPerQuestion] = useState<TriviaSecondsPerQuestion>(15);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  const [wsConnected, setWsConnected] = useState(false);
+  const [wsErrorMsg, setWsErrorMsg] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [participants, setParticipants] = useState<TriviaParticipant[]>([]);
   const [prevPositions, setPrevPositions] = useState<Record<string, number>>({});
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
 
-  const [questionIndex, setQuestionIndex] = useState(0);
+  const [question, setQuestion] = useState<PreguntaMsg | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
-  const [lastGain, setLastGain] = useState(0);
-  const { seconds, reset } = useTimer(15, false);
-  const startedAtRef = useRef(0);
+  const [now, setNow] = useState(() => Date.now());
 
-  const pool = triviaQuestions.filter((q) => q.category === category);
-  const question = pool.length > 0 ? pool[questionIndex % pool.length] : undefined;
+  const [finalRanking, setFinalRanking] = useState<TriviaParticipant[]>([]);
+  const [winnerId, setWinnerId] = useState<number | null>(null);
 
-  const shareLink = `growlink.app/trivia/unirse/${roomCode}`;
-
+  const socketRef = useRef<TriviaSocket | null>(null);
+  const participantsRef = useRef<TriviaParticipant[]>([]);
   useEffect(() => {
-    if (stage !== 'waiting' || !isHost) return;
-    const spawnCount = 1 + Math.floor(Math.random() * 3);
-    const timers = Array.from({ length: spawnCount }).map((_, i) =>
-      setTimeout(() => {
-        setParticipants((prev) => {
-          const name = BOT_NAMES[(prev.length + i) % BOT_NAMES.length];
-          if (prev.some((p) => p.name === name)) return prev;
-          return [...prev, { id: `bot-${name}`, name, score: 0, streak: 0, lastGain: 0, isHost: false }];
-        });
-      }, 1400 + i * 1600)
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [stage, isHost]);
+    participantsRef.current = participants;
+  }, [participants]);
 
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown <= 0) {
-      reset(secondsPerQuestion);
-      startedAtRef.current = Date.now();
-      setStage('playing');
-      return;
-    }
-    const t = setTimeout(() => setCountdown((c) => (c !== null ? c - 1 : null)), 1000);
-    return () => clearTimeout(t);
-  }, [countdown]);
+  // "unirse" hace dos cosas en el backend: registra la fila en sala_participante
+  // Y ata esta conexión STOMP a un usuarioId (sin eso, /responder no sabe quién
+  // contestó y el backend responde con un error de "usuario_id" nulo — se
+  // confirmó probando con dos usuarios reales). Al host, POST /api/salas ya lo
+  // registró como participante, así que su "unirse" choca con una llave
+  // duplicada — pero igual hay que mandarlo para que el backend asocie su sesión
+  // de WS; el error que devuelve ese choque se filtra para no alarmar de más
+  // (ver FILTERED_ERROR_SNIPPETS). El ref evita mandarlo dos veces si STOMP
+  // reconecta (o por el doble montaje de efectos de StrictMode en dev).
+  const joinedCodeRef = useRef<string | null>(null);
 
+  const shareLink = sala ? `growlink.app/trivia/unirse/${sala.codigo}` : '';
+
+  // Conexión STOMP: una por sala. Se abre al entrar a una sala (crear o unirse) y se cierra al salir.
   useEffect(() => {
-    if (seconds === 0 && !answered && stage === 'playing') {
-      handleAnswer(-1);
-    }
+    if (!sala || !session) return;
+    const socket = new TriviaSocket(sala.codigo, {
+      onMessage: handleSocketMessage,
+      onConnectionChange: (connected) => {
+        setWsConnected(connected);
+        if (connected && joinedCodeRef.current !== sala.codigo) {
+          socket.unirse(session.usuarioId, session.nombre);
+          joinedCodeRef.current = sala.codigo;
+        }
+      },
+    });
+    socket.connect();
+    socketRef.current = socket;
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seconds, stage]);
+  }, [sala?.codigo, isHost]);
 
-  function handleCreate() {
-    setIsHost(true);
-    setRoomCode(makeRoomCode());
-    setParticipants([{ id: 'me', name: currentUser?.name ?? 'Tú', score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
-    setStage('waiting');
+  function handleSocketMessage(msg: SalaMensaje) {
+    if (!session) return;
+    switch (msg.type) {
+      case 'SALA_UPDATE':
+        setParticipants((prev) => mergeParticipantes(prev, msg.participantes, session.usuarioId));
+        break;
+      case 'PREGUNTA':
+        setPrevPositions(
+          Object.fromEntries([...participantsRef.current].sort((a, b) => b.score - a.score).map((p, i) => [p.id, i]))
+        );
+        setQuestion(msg);
+        setSelected(null);
+        setAnswered(false);
+        setStarting(false);
+        setStage('playing');
+        break;
+      case 'LEADERBOARD':
+        setParticipants((prev) => mergeLeaderboard(prev, msg.ranking, session.usuarioId));
+        break;
+      case 'RESULTADOS_FINALES': {
+        const ranked = msg.ranking
+          .map(parseRankingItem)
+          .sort((a, b) => b.score - a.score)
+          .map((r, i) => ({
+            id: String(r.usuarioId),
+            name: r.nombre,
+            score: r.score,
+            streak: 0,
+            lastGain: 0,
+            isHost: i === 0,
+            isCurrentUser: r.usuarioId === session.usuarioId,
+          }));
+        setFinalRanking(ranked);
+        setWinnerId(msg.ganadorUsuarioId);
+        setStage('result');
+        break;
+      }
+      case 'ERROR':
+        // Ruido conocido e inofensivo: el "unirse" del host siempre choca con la fila que
+        // ya insertó POST /api/salas (ver el comentario arriba de joinedCodeRef). No se
+        // oculta ningún otro error, solo este.
+        if (!/sala_participante/i.test(msg.message)) setWsErrorMsg(msg.message);
+        setStarting(false);
+        break;
+    }
   }
 
-  function handleJoin(room: (typeof OPEN_ROOMS)[number]) {
-    setIsHost(false);
-    setRoomCode(room.code);
-    setCategory(room.category);
-    setParticipants([
-      { id: 'host', name: room.host, score: 0, streak: 0, lastGain: 0, isHost: true },
-      { id: 'me', name: currentUser?.name ?? 'Tú', score: 0, streak: 0, lastGain: 0, isHost: false, isCurrentUser: true },
-    ]);
-    setStage('waiting');
+  // Cuenta regresiva local de la pregunta: se deriva de enviadaEnEpochMs + duracionSegundos
+  // (el servidor es quien manda cuándo se acaba el tiempo, esto solo lo refleja visualmente).
+  useEffect(() => {
+    if (!question) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [question?.indice]);
+
+  if (!currentUser || !session) return null;
+
+  const elapsedSec = question ? (now - question.enviadaEnEpochMs) / 1000 : 0;
+  const secondsLeft = question ? Math.max(0, Math.ceil(question.duracionSegundos - elapsedSec)) : 0;
+  const timerFraction = question && question.duracionSegundos > 0 ? Math.max(0, Math.min(1, secondsLeft / question.duracionSegundos)) : 0;
+  const timeUp = question !== null && secondsLeft <= 0;
+
+  async function handleCreate() {
+    if (!createCategory || !session) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const nuevaSala = await crearSala({
+        categoria: createCategory,
+        hostUsuarioId: session.usuarioId,
+        hostNombre: session.nombre,
+        numPreguntas: numQuestions,
+        duracionSegundos: secondsPerQuestion,
+      });
+      // POST /api/salas ya nos registró como participante en el backend (no mandamos
+      // "unirse" por WS para el host — ver el comentario en el efecto de conexión),
+      // así que nos agregamos de una vez localmente en vez de esperar un SALA_UPDATE
+      // que nadie va a disparar hasta que llegue el primer invitado.
+      setParticipants([{ id: String(session.usuarioId), name: session.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
+      setIsHost(true);
+      setSala(nuevaSala);
+      setStage('waiting');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'No se pudo crear la sala.');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleJoinSubmit() {
+    const codigo = joinCode.trim().toUpperCase();
+    if (!codigo) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const encontrada = await obtenerSala(codigo);
+      if (!encontrada) {
+        setJoinError('No encontramos una sala con ese código.');
+        return;
+      }
+      setParticipants([]);
+      setIsHost(false);
+      setSala(encontrada);
+      setStage('waiting');
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : 'No se pudo buscar la sala.');
+    } finally {
+      setJoining(false);
+    }
   }
 
   function startGame() {
-    setCountdown(3);
+    setStarting(true);
+    setWsErrorMsg(null);
+    socketRef.current?.iniciar();
   }
 
   function handleAnswer(idx: number) {
-    if (answered || !question) return;
+    if (answered || !question || !session) return;
     setSelected(idx);
     setAnswered(true);
-
-    const correct = idx === question.correctIndex;
-    const elapsedFraction = Math.max(0, Math.min(1, (Date.now() - startedAtRef.current) / (secondsPerQuestion * 1000)));
-    const speedFactor = 1 - elapsedFraction * 0.7;
-    const gain = correct ? Math.round(400 * speedFactor) + 100 : 0;
-    setLastGain(gain);
-
-    setPrevPositions(Object.fromEntries(rankedParticipants().map((p, i) => [p.id, i])));
-
-    setParticipants((prev) =>
-      prev.map((p) => {
-        if (p.isCurrentUser) {
-          return { ...p, score: p.score + gain, streak: correct ? p.streak + 1 : 0, lastGain: gain };
-        }
-        const botCorrectChance = 0.65;
-        const botCorrect = Math.random() < botCorrectChance;
-        const botGain = botCorrect ? Math.round(200 + Math.random() * 350) : 0;
-        return { ...p, score: p.score + botGain, streak: botCorrect ? p.streak + 1 : 0, lastGain: botGain };
-      })
-    );
-
-    setTimeout(() => {
-      if (questionIndex < numQuestions - 1) {
-        setQuestionIndex((q) => q + 1);
-        setSelected(null);
-        setAnswered(false);
-        reset(secondsPerQuestion);
-        startedAtRef.current = Date.now();
-      } else {
-        setStage('result');
-      }
-    }, 2200);
+    socketRef.current?.responder(session.usuarioId, question.indice, idx);
   }
 
   function rankedParticipants() {
@@ -165,20 +304,27 @@ export default function TriviaRoomPage() {
   }
 
   function resetAll() {
+    joinedCodeRef.current = null;
     setStage('lobby');
     setIsHost(false);
-    setRoomCode('');
-    setCategory('');
+    setSala(null);
+    setCreateCategory('');
+    setCreateError(null);
+    setJoinCode('');
+    setJoinError(null);
+    setWsErrorMsg(null);
+    setStarting(false);
     setParticipants([]);
     setPrevPositions({});
-    setCountdown(null);
-    setQuestionIndex(0);
+    setQuestion(null);
     setSelected(null);
     setAnswered(false);
+    setFinalRanking([]);
+    setWinnerId(null);
   }
 
   const ranked = rankedParticipants();
-  const timerFraction = seconds / secondsPerQuestion;
+  const miParticipante = ranked.find((p) => p.isCurrentUser);
   const timerColor = timerFraction < 0.25 ? '#EF4444' : timerFraction < 0.5 ? '#F59E0B' : '#12C2A8';
 
   // ─── LOBBY ──────────────────────────────────────────────────
@@ -225,10 +371,9 @@ export default function TriviaRoomPage() {
                   </svg>
                 </div>
                 <h2 className="text-xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2 relative z-10 group-hover:text-[#1E73E8] transition-colors">Unirse a una sala</h2>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm leading-relaxed relative z-10">Explora las salas abiertas ahora mismo o entra con un código.</p>
-                <div className="mt-5 flex items-center gap-3 relative z-10">
+                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm leading-relaxed relative z-10">Entra con el código de 6 letras que te compartió el anfitrión.</p>
+                <div className="mt-5 relative z-10">
                   <span className="text-xs text-[#1E73E8] font-semibold border border-[#1E73E8]/30 px-2 py-0.5 rounded-md">Jugador</span>
-                  <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono">{OPEN_ROOMS.length} abiertas</span>
                 </div>
               </button>
             </div>
@@ -240,7 +385,7 @@ export default function TriviaRoomPage() {
 
   // ─── CREATE ─────────────────────────────────────────────────
   if (stage === 'create') {
-    const canCreate = category !== '';
+    const canCreate = createCategory !== '' && !creating;
     return (
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
         <Navbar />
@@ -266,9 +411,9 @@ export default function TriviaRoomPage() {
                   {CATEGORIES.map((cat) => (
                     <button
                       key={cat}
-                      onClick={() => setCategory(cat)}
+                      onClick={() => setCreateCategory(cat)}
                       className={`px-4 py-3 rounded-xl border text-sm font-medium text-left transition-all cursor-pointer ${
-                        category === cat
+                        createCategory === cat
                           ? 'border-[#12C2A8] bg-[#12C2A8]/10 text-[#12C2A8]'
                           : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] hover:border-[#1E73E8]/40'
                       }`}
@@ -317,8 +462,10 @@ export default function TriviaRoomPage() {
                 </div>
               </div>
 
+              {createError && <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{createError}</p>}
+
               <Button variant="gradient" size="lg" className="w-full" disabled={!canCreate} onClick={handleCreate}>
-                Crear sala y esperar jugadores
+                {creating ? <><Spinner /> Creando sala...</> : 'Crear sala y esperar jugadores'}
               </Button>
             </div>
           </div>
@@ -332,45 +479,40 @@ export default function TriviaRoomPage() {
     return (
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
         <Navbar />
-        <div className="flex-1 px-4 sm:px-8 py-12 max-w-[1200px] mx-auto w-full">
-          <button onClick={() => setStage('lobby')} className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] cursor-pointer mb-8 transition-colors">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Volver
-          </button>
+        <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-12">
+          <div className="max-w-md w-full">
+            <button onClick={() => setStage('lobby')} className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] cursor-pointer mb-8 transition-colors">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Volver
+            </button>
 
-          <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-              <span className="text-[#1E73E8] text-xs font-mono font-semibold tracking-widest uppercase">Salas activas</span>
-              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2">Elige tu sala</h2>
-              <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">{OPEN_ROOMS.length} salas abiertas ahora mismo.</p>
+            <div className="mb-8">
+              <span className="text-[#1E73E8] text-xs font-mono font-semibold tracking-widest uppercase">Unirse</span>
+              <h2 className="text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2 mb-1">Ingresa el código</h2>
+              <p className="text-[#6B7A99] dark:text-[#8BA5C2]">El código de 6 letras te lo comparte quien creó la sala.</p>
             </div>
-            <LiveIndicator label="EN VIVO" color="teal" size="md" />
-          </div>
 
-          <div className="space-y-3 max-w-3xl">
-            {OPEN_ROOMS.map((room) => (
-              <div key={room.code} className="flex flex-wrap items-center gap-4 sm:gap-5 p-5 rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:border-[#1E73E8]/30 hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] transition-all">
-                <div className="flex-1 min-w-[10rem]">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-mono font-bold text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254] px-2 py-0.5 rounded-md">{room.code}</span>
-                  </div>
-                  <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] truncate">{room.category}</p>
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-0.5">Anfitrión: {room.host}</p>
-                </div>
-                <div className="text-center shrink-0">
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider mb-1">Jugadores</p>
-                  <p className="font-mono font-bold text-[#15803D] dark:text-[#4CE07E]">{room.participants}</p>
-                </div>
-                <button
-                  onClick={() => handleJoin(room)}
-                  className="px-5 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer bg-[#EEF2F6] dark:bg-[#1C3254] text-[#0B1F3A] dark:text-[#E2EBF6] hover:bg-[#12C2A8] hover:text-white shrink-0"
-                >
-                  Unirse
-                </button>
-              </div>
-            ))}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleJoinSubmit();
+              }}
+              className="space-y-4"
+            >
+              <input
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
+                placeholder="GL7X9K"
+                autoFocus
+                className="w-full text-center tracking-[0.5em] uppercase font-mono font-bold text-2xl px-4 py-4 border-2 border-[#DDE4ED] dark:border-[#1C3254] rounded-xl bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] placeholder:text-[#DDE4ED] dark:placeholder:text-[#1C3254] focus:outline-none focus:border-[#1E73E8] transition-all"
+              />
+              {joinError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] text-center">{joinError}</p>}
+              <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={joinCode.trim().length === 0 || joining}>
+                {joining ? <><Spinner /> Buscando sala...</> : 'Unirme a la sala'}
+              </Button>
+            </form>
           </div>
         </div>
       </div>
@@ -386,15 +528,20 @@ export default function TriviaRoomPage() {
           <div className="max-w-lg w-full">
             <div className="text-center mb-8">
               <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Sala de espera</span>
-              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-3 mb-3">{category}</h2>
+              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-3 mb-3">{sala?.categoria}</h2>
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <span className="text-xs font-bold px-3 py-1 rounded-full border text-[#12C2A8] border-[#12C2A8]/40 bg-[#12C2A8]/10">
-                  {numQuestions} preguntas · {secondsPerQuestion}s c/u
+                  {sala?.numPreguntas} preguntas · {sala?.duracionSegundos}s c/u
                 </span>
                 <div className="flex items-center gap-2 bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-full px-3 py-1">
                   <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2]">Código:</span>
-                  <span className="text-xs font-mono font-bold text-[#0B1F3A] dark:text-[#E2EBF6] tracking-widest">{roomCode}</span>
+                  <span className="text-xs font-mono font-bold text-[#0B1F3A] dark:text-[#E2EBF6] tracking-widest">{sala?.codigo}</span>
                 </div>
+                {!wsConnected && (
+                  <span className="flex items-center gap-1.5 text-xs font-mono text-[#B45309] dark:text-[#FBBF24]">
+                    <Spinner className="w-3.5 h-3.5" /> Conectando...
+                  </span>
+                )}
               </div>
               {isHost && (
                 <button
@@ -408,6 +555,12 @@ export default function TriviaRoomPage() {
                 </button>
               )}
             </div>
+
+            {wsErrorMsg && (
+              <div className="mb-5 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+                <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
+              </div>
+            )}
 
             <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl overflow-hidden mb-6">
               <div className="px-5 py-3.5 border-b border-[#DDE4ED] dark:border-[#1C3254] flex items-center justify-between">
@@ -435,6 +588,9 @@ export default function TriviaRoomPage() {
                     )}
                   </div>
                 ))}
+                {participants.length === 0 && (
+                  <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] text-center py-2">Conectando a la sala...</p>
+                )}
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-[#DDE4ED] dark:border-[#1C3254]">
                   <div className="w-8 h-8 rounded-full border border-dashed border-[#DDE4ED] dark:border-[#1C3254] flex items-center justify-center">
                     <svg className="w-4 h-4 text-[#6B7A99]/50 dark:text-[#8BA5C2]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -449,14 +605,14 @@ export default function TriviaRoomPage() {
               </div>
             </div>
 
-            {countdown !== null ? (
+            {starting ? (
               <div className="text-center mb-4">
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mb-2 font-mono">La sala comienza en...</p>
-                <p className="text-8xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">{countdown}</p>
+                <div className="flex justify-center text-[#12C2A8] mb-2"><Spinner className="w-6 h-6" /></div>
+                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm font-mono">Iniciando sala...</p>
               </div>
             ) : isHost ? (
               <div className="space-y-3">
-                <Button variant="gradient" size="lg" className="w-full" disabled={participants.length < 2} onClick={startGame}>
+                <Button variant="gradient" size="lg" className="w-full" disabled={participants.length < 2 || !wsConnected} onClick={startGame}>
                   Iniciar sala ahora
                 </Button>
                 {participants.length < 2 && (
@@ -477,12 +633,13 @@ export default function TriviaRoomPage() {
 
   // ─── RESULT / PODIUM ────────────────────────────────────────
   if (stage === 'result') {
-    const podium = ranked.slice(0, 3);
-    const rest = ranked.slice(3);
+    const podium = finalRanking.slice(0, 3);
+    const rest = finalRanking.slice(3);
     const heightFor = (i: number) => (i === 0 ? 'h-40' : i === 1 ? 'h-28' : 'h-20');
     const orderFor = (i: number) => (i === 0 ? 'order-2' : i === 1 ? 'order-1' : 'order-3');
     const colorFor = (i: number) => (i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : '#CD7C2F');
-    const myRank = ranked.findIndex((p) => p.isCurrentUser) + 1;
+    const myRank = finalRanking.findIndex((p) => p.isCurrentUser) + 1;
+    const amIWinner = winnerId !== null && winnerId === session.usuarioId;
 
     return (
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
@@ -490,7 +647,7 @@ export default function TriviaRoomPage() {
         <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
           <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase mb-2">Sala finalizada</span>
           <h2 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-8 text-center">
-            {myRank === 1 ? '¡Ganaste la sala!' : `Terminaste en el puesto #${myRank}`}
+            {amIWinner ? '¡Ganaste la sala!' : myRank > 0 ? `Terminaste en el puesto #${myRank}` : 'Sala finalizada'}
           </h2>
 
           <div className="flex items-end justify-center gap-4 mb-10 w-full max-w-lg">
@@ -523,7 +680,7 @@ export default function TriviaRoomPage() {
 
           <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="gradient" size="lg" onClick={resetAll}>Jugar de nuevo</Button>
-            <Button variant="secondary" size="lg" onClick={() => navigate(currentUser?.role === 'publisher' ? 'my-courses' : 'home')}>
+            <Button variant="secondary" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>
               Salir
             </Button>
           </div>
@@ -538,9 +695,9 @@ export default function TriviaRoomPage() {
       <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
         <Navbar />
         <div className="flex-1 flex items-center justify-center px-4 text-center">
-          <div>
-            <p className="text-lg font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2">No hay preguntas para esta categoría todavía.</p>
-            <Button variant="secondary" onClick={resetAll}>Volver</Button>
+          <div className="flex flex-col items-center gap-3 text-[#6B7A99] dark:text-[#8BA5C2]">
+            <Spinner className="w-6 h-6" />
+            <p>Esperando la primera pregunta...</p>
           </div>
         </div>
       </div>
@@ -555,19 +712,25 @@ export default function TriviaRoomPage() {
           <div className="flex flex-wrap items-center gap-3 sm:gap-4">
             <LiveIndicator label="SALA EN VIVO" color="teal" size="md" />
             <span className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm font-mono">{participants.length} jugadores</span>
-            <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono border border-[#DDE4ED] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] px-2 py-0.5 rounded-md">{category}</span>
+            <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono border border-[#DDE4ED] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] px-2 py-0.5 rounded-md">{sala?.categoria}</span>
           </div>
           <div className="flex items-center gap-6">
             <div className="text-center">
               <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider">Pregunta</p>
-              <p className="text-[#0B1F3A] dark:text-[#E2EBF6] font-mono font-bold">{questionIndex + 1} / {numQuestions}</p>
+              <p className="text-[#0B1F3A] dark:text-[#E2EBF6] font-mono font-bold">{question.indice + 1} / {question.totalPreguntas}</p>
             </div>
             <div className="text-center">
               <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider">Tu puntaje</p>
-              <p className="font-mono font-bold text-[#15803D] dark:text-[#4CE07E]">{(ranked.find((p) => p.isCurrentUser)?.score ?? 0).toLocaleString()}</p>
+              <p className="font-mono font-bold text-[#15803D] dark:text-[#4CE07E]">{(miParticipante?.score ?? 0).toLocaleString()}</p>
             </div>
           </div>
         </div>
+
+        {wsErrorMsg && (
+          <div className="mb-5 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+            <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
+          </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 flex-1">
           <div className="flex-1 flex flex-col">
@@ -579,47 +742,40 @@ export default function TriviaRoomPage() {
                     cx="32" cy="32" r="28" fill="none" stroke={timerColor} strokeWidth="4" strokeLinecap="round"
                     strokeDasharray={`${2 * Math.PI * 28}`}
                     strokeDashoffset={`${2 * Math.PI * 28 * (1 - timerFraction)}`}
-                    style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.3s' }}
+                    style={{ transition: 'stroke-dashoffset 0.25s linear, stroke 0.3s' }}
                   />
                 </svg>
-                <span className="absolute inset-0 flex items-center justify-center font-mono font-bold text-xl" style={{ color: timerColor }}>{seconds}</span>
+                <span className="absolute inset-0 flex items-center justify-center font-mono font-bold text-xl" style={{ color: timerColor }}>{secondsLeft}</span>
               </div>
               <div className="flex-1 h-1 bg-[#EEF2F6] dark:bg-[#1C3254] rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${(questionIndex / numQuestions) * 100}%`, background: 'linear-gradient(90deg, #1E73E8, #12C2A8)' }} />
+                <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${(question.indice / question.totalPreguntas) * 100}%`, background: 'linear-gradient(90deg, #1E73E8, #12C2A8)' }} />
               </div>
             </div>
 
             <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 sm:p-8 mb-6">
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-widest mb-4">Pregunta {questionIndex + 1}</p>
-              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] leading-snug">{question.question}</h2>
+              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-widest mb-4">Pregunta {question.indice + 1}</p>
+              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] leading-snug">{question.texto}</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
-              {question.options.map((option, i) => {
-                let state: 'default' | 'correct' | 'wrong' | 'missed' = 'default';
-                if (answered) {
-                  if (i === question.correctIndex) state = 'correct';
-                  else if (i === selected) state = 'wrong';
-                  else state = 'missed';
-                }
-                const stateClasses: Record<string, string> = {
-                  default: 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] hover:border-[#1E73E8]/40 text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer',
-                  correct: 'border-[#4CE07E] bg-[#4CE07E]/10 text-[#15803D] dark:text-[#4CE07E]',
-                  wrong: 'border-[#EF4444] bg-[#EF4444]/10 text-[#DC2626] dark:text-[#EF4444]',
-                  missed: 'border-[#EEF2F6] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2]',
-                };
+              {question.opciones.map((option, i) => {
+                // trivia-service nunca manda la respuesta correcta — solo se puede marcar cuál elegiste.
+                const isSelected = answered && i === selected;
+                const locked = answered || timeUp;
+                const stateClasses = isSelected
+                  ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
+                  : locked
+                    ? 'border-[#EEF2F6] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] opacity-60'
+                    : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] hover:border-[#1E73E8]/40 text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer';
                 return (
                   <button
                     key={i}
                     onClick={() => handleAnswer(i)}
-                    disabled={answered}
-                    className={`p-5 rounded-2xl border-2 text-left font-semibold transition-all flex items-center gap-4 ${state === 'correct' ? 'gl-pop-in' : ''} ${stateClasses[state]}`}
+                    disabled={locked}
+                    className={`p-5 rounded-2xl border-2 text-left font-semibold transition-all flex items-center gap-4 ${stateClasses}`}
                   >
                     <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-mono font-bold shrink-0 ${
-                      state === 'default' ? 'bg-[#F7F9FA] dark:bg-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]' :
-                      state === 'correct' ? 'bg-[#4CE07E]/20 text-[#15803D] dark:text-[#4CE07E]' :
-                      state === 'wrong' ? 'bg-[#EF4444]/20 text-[#DC2626] dark:text-[#EF4444]' :
-                      'bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2]'
+                      isSelected ? 'bg-[#1E73E8]/20 text-[#1E73E8]' : 'bg-[#F7F9FA] dark:bg-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]'
                     }`}>
                       {['A', 'B', 'C', 'D'][i]}
                     </span>
@@ -629,11 +785,13 @@ export default function TriviaRoomPage() {
               })}
             </div>
 
-            {answered && (
-              <p className={`text-center mt-4 font-mono font-bold ${selected === question.correctIndex ? 'text-[#15803D] dark:text-[#4CE07E]' : 'text-[#DC2626] dark:text-[#F87171]'}`}>
-                {selected === question.correctIndex ? `+${lastGain} puntos` : 'Sin puntos esta ronda'}
+            {answered ? (
+              <p className="text-center mt-4 font-mono font-bold text-[#1E73E8]">
+                {miParticipante && miParticipante.lastGain > 0 ? `+${miParticipante.lastGain} puntos` : 'Respuesta enviada — esperando resultados...'}
               </p>
-            )}
+            ) : timeUp ? (
+              <p className="text-center mt-4 font-mono font-bold text-[#DC2626] dark:text-[#F87171]">Tiempo agotado</p>
+            ) : null}
           </div>
 
           {/* Leaderboard */}
@@ -662,7 +820,6 @@ export default function TriviaRoomPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className={`text-xs font-semibold truncate ${player.isCurrentUser ? 'text-[#12C2A8]' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>{player.name}</p>
-                        {player.streak > 1 && <p className="text-[10px] text-[#B45309] dark:text-[#F59E0B] font-mono">racha x{player.streak}</p>}
                       </div>
                       <PositionBadge delta={delta} />
                       <p className="font-mono font-bold text-sm text-[#0B1F3A] dark:text-[#E2EBF6]">{player.score.toLocaleString()}</p>

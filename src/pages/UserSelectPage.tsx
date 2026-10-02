@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import logo from '../imports/logoGrowLink.png';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import LiveIndicator from '../components/LiveIndicator';
-import { SEED_USERS, mockCourses } from '../services/mockData';
+import { mockCourses } from '../services/mockData';
+import { getUsuariosQuemados, rolDesdeBackend, type UsuarioQuemado } from '../services/usuariosServiceApi';
 import type { UserRole } from '../types';
 
 const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string }> = {
@@ -14,8 +16,40 @@ const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string 
 const ROLE_ORDER: UserRole[] = ['user', 'publisher', 'admin'];
 
 export default function UserSelectPage() {
-  const { login } = useNavigation();
+  const { login, sessionExpired } = useNavigation();
   const { isDark, toggle } = useTheme();
+
+  const [usuarios, setUsuarios] = useState<UsuarioQuemado[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loggingInId, setLoggingInId] = useState<number | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoadError(null);
+    getUsuariosQuemados()
+      .then((data) => {
+        if (!ignore) setUsuarios(data);
+      })
+      .catch((err: unknown) => {
+        if (!ignore) setLoadError(err instanceof Error ? err.message : 'No se pudieron cargar los usuarios.');
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [reloadKey]);
+
+  async function handleLogin(usuario: UsuarioQuemado) {
+    setLoggingInId(usuario.id);
+    setLoginError(null);
+    try {
+      await login(usuario);
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'No se pudo iniciar sesión.');
+      setLoggingInId(null);
+    }
+  }
 
   return (
     <div className="min-h-screen flex relative">
@@ -81,48 +115,88 @@ export default function UserSelectPage() {
             <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1.5">Sin contraseña — cada perfil representa un rol distinto dentro de GrowLink.</p>
           </div>
 
-          <div className="space-y-6">
-            {ROLE_ORDER.map((role) => {
-              const meta = ROLE_META[role];
-              const users = SEED_USERS.filter((u) => u.role === role);
-              return (
-                <div key={role}>
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta.accent }} />
-                    <p className="text-xs font-mono font-semibold uppercase tracking-widest" style={{ color: meta.accent }}>{meta.label}</p>
-                  </div>
-                  <div className="space-y-2.5">
-                    {users.map((user) => {
-                      const initials = user.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
-                      return (
-                        <button
-                          key={user.id}
-                          onClick={() => login(user.id)}
-                          className={`gl-card-hover w-full flex items-center gap-4 p-4 rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-left cursor-pointer transition-all ${meta.ring}`}
-                        >
-                          <div
-                            className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-display font-bold shrink-0"
-                            style={{ background: `linear-gradient(135deg, ${meta.accent}, #0B1F3A)` }}
+          {sessionExpired && !loginError && (
+            <div className="mb-5 flex items-center justify-between gap-3 p-3 rounded-xl border border-[#F59E0B]/30 bg-[#FFFBEB] dark:bg-[#3A2A0D]">
+              <p className="text-sm text-[#B45309] dark:text-[#FBBF24]">Tu sesión expiró o ya no es válida. Vuelve a elegir un usuario.</p>
+            </div>
+          )}
+
+          {loginError && (
+            <div className="mb-5 flex items-center justify-between gap-3 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+              <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{loginError}</p>
+            </div>
+          )}
+
+          {loadError ? (
+            <div className="p-5 rounded-2xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+              <p className="text-sm text-[#DC2626] dark:text-[#F87171] mb-3">{loadError}</p>
+              <button
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="text-sm font-semibold text-[#DC2626] dark:text-[#F87171] underline cursor-pointer"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : usuarios === null ? (
+            <div className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] py-6">
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Cargando usuarios de usuarios-service...
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {ROLE_ORDER.map((role) => {
+                const meta = ROLE_META[role];
+                const users = usuarios.filter((u) => rolDesdeBackend(u.rol) === role);
+                if (users.length === 0) return null;
+                return (
+                  <div key={role}>
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: meta.accent }} />
+                      <p className="text-xs font-mono font-semibold uppercase tracking-widest" style={{ color: meta.accent }}>{meta.label}</p>
+                    </div>
+                    <div className="space-y-2.5">
+                      {users.map((user) => {
+                        const initials = user.nombre.split(' ').map((n) => n[0]).join('').slice(0, 2);
+                        const loggingIn = loggingInId === user.id;
+                        return (
+                          <button
+                            key={user.id}
+                            onClick={() => handleLogin(user)}
+                            disabled={loggingInId !== null}
+                            className={`gl-card-hover w-full flex items-center gap-4 p-4 rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-left cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${meta.ring}`}
                           >
-                            {initials}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] truncate">{user.name}</p>
-                            <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] truncate mt-0.5">
-                              {user.headline}{user.org ? ` · ${user.org}` : ''}
-                            </p>
-                          </div>
-                          <svg className="w-4 h-4 text-[#6B7A99] dark:text-[#8BA5C2] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      );
-                    })}
+                            <div
+                              className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-display font-bold shrink-0"
+                              style={{ background: `linear-gradient(135deg, ${meta.accent}, #0B1F3A)` }}
+                            >
+                              {initials}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] truncate">{user.nombre}</p>
+                              {user.cargo && <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] truncate mt-0.5">{user.cargo}</p>}
+                            </div>
+                            {loggingIn ? (
+                              <svg className="w-4 h-4 text-[#6B7A99] dark:text-[#8BA5C2] shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4 text-[#6B7A99] dark:text-[#8BA5C2] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
