@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "seed:roadmap": "node scripts/seed-roadmap-demo.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

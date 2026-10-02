@@ -25,6 +25,26 @@ export const CATEGORIAS_CURSOS = [
 
 export type CategoriaCurso = (typeof CATEGORIAS_CURSOS)[number];
 
+/** Nombre del enum `Categoria` de cursos-service para cada categoría que muestra el frontend. */
+export const CATEGORIA_ENUM: Record<CategoriaCurso, string> = {
+  'Ingeniería de Sistemas': 'INGENIERIA_SISTEMAS',
+  'Ingeniería Civil': 'INGENIERIA_CIVIL',
+  'Ingeniería Industrial': 'INGENIERIA_INDUSTRIAL',
+  'Ingeniería Electrónica': 'INGENIERIA_ELECTRONICA',
+  'Ingeniería Mecánica': 'INGENIERIA_MECANICA',
+  'Ingeniería Ambiental': 'INGENIERIA_AMBIENTAL',
+  Matemáticas: 'MATEMATICAS',
+  'Administración de Empresas': 'ADMINISTRACION_EMPRESAS',
+  Idiomas: 'IDIOMAS',
+  Derecho: 'DERECHO',
+};
+
+/** Inverso de CATEGORIA_ENUM; si llega un valor desconocido se devuelve tal cual. */
+export function categoriaDesdeEnum(valor: string): string {
+  const entry = Object.entries(CATEGORIA_ENUM).find(([, e]) => e === valor);
+  return entry ? entry[0] : valor;
+}
+
 export interface PrerequisitoSugerido {
   id: string;
   titulo: string;

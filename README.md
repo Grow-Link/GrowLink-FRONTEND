@@ -93,9 +93,39 @@ src/
 
 ## Estado actual
 
-Este frontend todavía **no está conectado a ningún backend real** — todos los datos (usuarios, oportunidades, roadmap, métricas, etc.) son simulados en `src/services/mockData.ts`. La sesión de acceso es únicamente una guarda del lado del cliente (no hay token ni autenticación real todavía), y las funciones de "tiempo real" (pujas, duelos) se simulan con temporizadores en el propio frontend en lugar de WebSockets.
+La página **Roadmap** ya usa el backend real (cursos-service, ver abajo). El resto de pantallas todavía usan datos simulados en `src/services/mockData.ts` (usuarios, perfil, catálogo, métricas, etc.), así que por ejemplo el resumen del roadmap en Inicio sigue siendo el simulado. La sesión de acceso es únicamente una guarda del lado del cliente (no hay token ni autenticación real todavía), y las funciones de "tiempo real" (pujas, duelos) se simulan con temporizadores en el propio frontend en lugar de WebSockets.
 
 Está pensado para integrarse con una arquitectura de microservicios (Identidad, Perfil y Metas, Roadmap con IA, Marketplace y Pujas, Duelos de Trivia, Monetización, Temáticas y Observabilidad, y un servicio de Tiempo Real transversal) a través de un API Gateway.
+
+---
+
+## Roadmap como grafo (HU-12)
+
+`/roadmap` muestra el roadmap guardado en cursos-service como un grafo dirigido: una columna por **etapa** y una flecha por cada relación de prerequisito real (`A → B` = "A es requisito de B"). La etapa de un curso es la cadena de prerequisitos más larga que tiene dentro de la ruta, así que todo lo de la etapa 1 se puede tomar ya.
+
+- Cada curso muestra su estado: completado, "estás aquí" (el primero disponible según el orden sugerido), disponible, bloqueado o no disponible (dado de baja, HU-10).
+- Al pasar el cursor o tocar un curso se resaltan sus prerequisitos (azul) y lo que desbloquea (verde agua). El panel lateral los lista, junto con los prerequisitos reales que quedaron fuera de la ruta por categoría o nivel.
+- "Regenerar con IA" llama a `POST /api/roadmap/generar` (HU-11) con el perfil del onboarding.
+- Si las etapas no caben, las tarjetas se angostan y, si aún así no caben (celular), el grafo se desliza horizontalmente.
+
+Datos: `GET /api/roadmap/mio`, `GET /api/cursos/completados`, `GET /api/cursos/estado-roadmap` y `GET /api/cursos/{id}` (solo para los prerequisitos externos). Código: `src/utils/roadmapGraph.ts` (grafo y layout, funciones puras), `src/components/PrerequisiteGraph.tsx` y `src/pages/RoadmapPage.tsx`.
+
+**Sesión:** el login del frontend sigue siendo simulado, así que cada usuario simulado se conecta con el usuario de prueba de usuarios-service que tiene su mismo rol (todos los de rol "usuario" ven el roadmap de *Ana (usuario)*). Ver `src/services/backendSession.ts`.
+
+**Conexión:** el navegador solo habla con Vite y Vite reenvía `/api-usuarios` → usuarios-service y `/api-cursos` → cursos-service (`vite.config.ts`), así que no hace falta CORS. Si los servicios no corren en los puertos por defecto, crea un `.env.local` con `USUARIOS_SERVICE_URL=http://localhost:8080` y/o `CURSOS_SERVICE_URL=http://localhost:8086`.
+
+### Cómo probarlo
+
+1. Levanta usuarios-service y cursos-service con el **mismo** secreto (cada uno en su terminal, desde su carpeta):
+   ```bash
+   export GROWLINK_JWT_SECRET='CHANGE_ME_local_dev_only_not_a_real_secret_32bytes+'
+   docker compose up -d && mvn spring-boot:run
+   ```
+2. Carga datos de prueba (11 cursos con prerequisitos, un roadmap para *Ana (usuario)* y 2 cursos completados). Se puede correr varias veces, reutiliza los cursos que ya existen:
+   ```bash
+   npm run seed:roadmap
+   ```
+3. `npm run dev`, abre http://localhost:5173, entra como **Ana Torres** y ve a **Roadmap**.
 
 ---
 
