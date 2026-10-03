@@ -129,6 +129,35 @@ Datos: `GET /api/roadmap/mio`, `GET /api/cursos/completados`, `GET /api/cursos/e
 
 ---
 
+## Despliegue
+
+En desarrollo, Vite hace de proxy hacia los servicios (`/api-usuarios`,
+`/api-cursos`, `/api-trivia`, `/ws-trivia`, ver `vite.config.ts`). Ese proxy no
+existe en produccion, asi que ahi lo hace nginx: el `Dockerfile` compila el
+front y lo sirve con nginx, que ademas es la entrada unica hacia los tres
+servicios (`deploy/nginx.conf.template`).
+
+- Los servicios se resuelven por nombre en cada peticion, asi que si hay
+  varias replicas de un servicio detras del mismo nombre, nginx reparte la
+  carga entre ellas.
+- Se configura con variables de entorno del contenedor:
+
+| Variable | Valor por defecto | Para que sirve |
+|---|---|---|
+| `USUARIOS_URL` | `http://usuarios-service:8080` | Donde esta usuarios-service |
+| `CURSOS_URL` | `http://cursos-service:8086` | Donde esta cursos-service |
+| `TRIVIA_URL` | `http://trivia-service:8085` | Donde esta trivia-service |
+| `DNS_RESOLVER` | `127.0.0.11` | DNS de Docker. En Azure App Service va `168.63.129.16` |
+
+- `ci.yml` revisa los tipos y compila en cada push a `main`, `avance` o `final`.
+- `cd.yml` construye la imagen, la sube a GitHub Container Registry y la
+  despliega a Azure App Service en el ambiente de su rama (`main` -> `actual`,
+  `avance` -> `avance`, `final` -> `final`). En la App Service poner
+  `WEBSITES_PORT=80` y las variables de arriba. El flujo completo de ramas y
+  ambientes esta en el README del repo `infra`.
+
+---
+
 ## Institución
 
 **Escuela Colombiana de Ingeniería Julio Garavito**
