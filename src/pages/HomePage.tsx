@@ -188,6 +188,7 @@ export default function HomePage() {
                   Nivel {perfil.nivel}
                 </span>
               )}
+              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-3">Trivias ganadas: <span className="font-mono font-bold">{perfil.triviasGanadas}</span></p>
             </div>
           )}
 
@@ -360,6 +361,7 @@ export default function HomePage() {
                     <span key={i} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">{i}</span>
                   ))}
                 </div>
+                <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mb-3">Trivias ganadas: <span className="font-mono font-bold">{perfil.triviasGanadas}</span></p>
                 <button onClick={() => navigate('onboarding')} className="text-xs text-[#1E73E8] font-semibold hover:underline cursor-pointer">Editar perfil</button>
               </div>
             )}

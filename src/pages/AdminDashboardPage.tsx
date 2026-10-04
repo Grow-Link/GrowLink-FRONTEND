@@ -1,4 +1,5 @@
 import Navbar from '../components/Navbar';
+import ConcurrenciaEnVivo from '../components/ConcurrenciaEnVivo';
 import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
 import { mockAdminMetrics } from '../services/mockData';
@@ -63,6 +64,8 @@ export default function AdminDashboardPage() {
             Moderar cursos
           </button>
         </div>
+
+        <ConcurrenciaEnVivo />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="col-span-1">

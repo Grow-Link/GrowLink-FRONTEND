@@ -71,6 +71,8 @@ export interface Perfil {
   intereses: string[];
   nivel: Level | null;
   completo: boolean;
+  /** HU-22: partidas de trivia ganadas, la suma trivia-service cuando termina una partida. */
+  triviasGanadas: number;
 }
 
 const NIVEL_DESDE_BACKEND: Record<string, Level> = { PRINCIPIANTE: 'principiante', INTERMEDIO: 'intermedio', AVANZADO: 'avanzado' };
@@ -82,6 +84,7 @@ function parsePerfil(data: any): Perfil {
     intereses: intereses.map((i: string) => categoriaDesdeEnum(i)),
     nivel: data?.nivel ? NIVEL_DESDE_BACKEND[data.nivel] ?? null : null,
     completo: Boolean(data?.completo),
+    triviasGanadas: Number(data?.triviasGanadas ?? 0),
   };
 }
 

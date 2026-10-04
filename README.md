@@ -149,6 +149,11 @@ servicios (`deploy/nginx.conf.template`).
 | `TRIVIA_URL` | `http://trivia-service:8085` | Donde esta trivia-service |
 | `DNS_RESOLVER` | `127.0.0.11` | DNS de Docker. En Azure App Service va `168.63.129.16` |
 
+- Panel del admin: la seccion "Concurrencia en tiempo real" muestra datos reales
+  de `GET /api/metricas/dashboard` de trivia-service (salas activas, jugadores
+  conectados, latencia a la primera respuesta, empates resueltos), se actualiza
+  cada 5 segundos. Las demas graficas de esa pagina siguen siendo de ejemplo.
+- En el Home, "Tu perfil" muestra las trivias ganadas que suma trivia-service.
 - `ci.yml` revisa los tipos y compila en cada push a `main`, `avance` o `final`.
 - `cd.yml` construye la imagen, la sube a GitHub Container Registry y la
   despliega a Azure App Service en el ambiente de su rama (`main` -> `actual`,
