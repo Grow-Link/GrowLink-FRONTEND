@@ -17,6 +17,8 @@ export interface RoadmapDto {
   metas: string | null;
   nivel: string;
   creadoEn: string;
+  /** Quien armo el roadmap: la IA, o el modo de respaldo (sin IA). null en roadmaps viejos. */
+  generadoPor?: 'IA' | 'RESPALDO' | null;
   cursos: RoadmapCursoInput[];
 }
 

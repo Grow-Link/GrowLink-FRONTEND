@@ -200,7 +200,7 @@ export default function HomePage() {
                   Generando tu roadmap...
                 </>
               ) : (
-                'Generar mi roadmap con IA'
+                'Generar mi roadmap'
               )}
             </Button>
             {generateError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] mt-4">{generateError}</p>}

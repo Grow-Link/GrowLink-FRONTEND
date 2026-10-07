@@ -158,7 +158,13 @@ export default function RoadmapPage() {
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
           <div>
-            <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Roadmap generado por IA</span>
+            <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">
+              {data.roadmap.generadoPor === 'IA'
+                ? 'Roadmap generado por IA'
+                : data.roadmap.generadoPor === 'RESPALDO'
+                  ? 'Roadmap en modo de respaldo (sin IA)'
+                  : 'Tu roadmap'}
+            </span>
             <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2 leading-tight">
               Tu camino de aprendizaje
             </h1>
@@ -168,6 +174,12 @@ export default function RoadmapPage() {
                 : `${totalNodes} ${totalNodes === 1 ? 'curso' : 'cursos'} en ${graph.etapas} ${graph.etapas === 1 ? 'etapa' : 'etapas'}`}{' '}
               · generado {timeAgo(data.roadmap.creadoEn)}
             </p>
+            {data.roadmap.generadoPor === 'RESPALDO' && (
+              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1 max-w-xl">
+                Se ordenó con los prerequisitos reales de los cursos de tus intereses y tu nivel. La recomendación según tus
+                metas con IA se activa cuando el servicio tiene su llave configurada.
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-start sm:items-end gap-2">
             <Button variant="secondary" onClick={handleGenerate} disabled={generating} className="self-start sm:self-end">
@@ -178,7 +190,7 @@ export default function RoadmapPage() {
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  Regenerar con IA
+                  Regenerar roadmap
                 </>
               )}
             </Button>
