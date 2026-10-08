@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
-import PrerequisiteGraph, { ESTADO_LABEL, GraphLegend } from '../components/PrerequisiteGraph';
+import RoadmapGraph from '../components/RoadmapGraph';
+import { ESTADO_LABEL, GraphLegend } from '../components/PrerequisiteGraph';
 import { useNavigation } from '../store/NavigationContext';
 import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap, nivelLabel, type RoadmapBackendData } from '../services/roadmapApi';
 import { categoriaDesdeEnum } from '../services/cursosServiceApi';
 import { buildRoadmapGraph, type GraphNode } from '../utils/roadmapGraph';
 import { timeAgo } from '../utils/format';
+import { downloadRoadmapPdf } from '../utils/roadmapPdf';
 
 // HU-12: el roadmap guardado en cursos-service (HU-11) visto como grafo de
 // prerequisitos. Los datos vienen del backend real; el perfil (metas, intereses,
@@ -48,6 +50,9 @@ export default function RoadmapPage() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const graphRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -101,6 +106,27 @@ export default function RoadmapPage() {
       setGenerateError((e as Error).message);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!graphRef.current || !data) return;
+    setDownloadingPdf(true);
+    setDownloadError(null);
+    try {
+      const nodes = data.roadmap.cursos;
+      const total = nodes.length;
+      const done = data.completados.size;
+      await downloadRoadmapPdf(graphRef.current, {
+        nombre: currentUser?.name ?? 'usuario',
+        progresoPct: total > 0 ? Math.round((done / total) * 100) : 0,
+        totalCursos: total,
+        completados: done,
+      });
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'No se pudo generar el PDF.');
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -182,19 +208,36 @@ export default function RoadmapPage() {
             )}
           </div>
           <div className="flex flex-col items-start sm:items-end gap-2">
-            <Button variant="secondary" onClick={handleGenerate} disabled={generating} className="self-start sm:self-end">
-              {generating ? (
-                <><Spinner /> Regenerando...</>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Regenerar roadmap
-                </>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-end">
+              {totalNodes > 0 && (
+                <Button variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+                  {downloadingPdf ? (
+                    <><Spinner /> Generando PDF...</>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Descargar PDF
+                    </>
+                  )}
+                </Button>
               )}
-            </Button>
+              <Button variant="secondary" onClick={handleGenerate} disabled={generating}>
+                {generating ? (
+                  <><Spinner /> Regenerando...</>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Regenerar roadmap
+                  </>
+                )}
+              </Button>
+            </div>
             {generateError && <p className="text-xs text-[#DC2626] dark:text-[#F87171]">{generateError}</p>}
+            {downloadError && <p className="text-xs text-[#DC2626] dark:text-[#F87171]">{downloadError}</p>}
           </div>
         </div>
 
@@ -228,7 +271,9 @@ export default function RoadmapPage() {
                   <GraphLegend />
                   <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] shrink-0">Toca un curso para ver qué requiere y qué desbloquea</p>
                 </div>
-                <PrerequisiteGraph graph={graph} selectedId={selectedId} onSelect={setSelectedId} />
+                <div ref={graphRef} className="py-2">
+                  <RoadmapGraph graph={graph} selectedId={selectedId} onSelect={setSelectedId} />
+                </div>
               </>
             )}
           </div>

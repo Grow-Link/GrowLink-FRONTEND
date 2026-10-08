@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@stomp/stompjs": "^7.3.0",
+    "html2canvas-pro": "^2.5.2",
+    "jspdf": "^4.2.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.4",
