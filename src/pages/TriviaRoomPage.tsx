@@ -129,6 +129,7 @@ export default function TriviaRoomPage() {
   const [question, setQuestion] = useState<PreguntaMsg | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
+  const [answerResult, setAnswerResult] = useState<{ correcta: boolean; puntos: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const [finalRanking, setFinalRanking] = useState<TriviaParticipant[]>([]);
@@ -188,8 +189,14 @@ export default function TriviaRoomPage() {
         setQuestion(msg);
         setSelected(null);
         setAnswered(false);
+        setAnswerResult(null);
         setStarting(false);
         setStage('playing');
+        break;
+      case 'RESPUESTA_REGISTRADA':
+        // Llega para cada jugador que responde, no solo para mí — si es de otro, se ignora.
+        if (msg.usuarioId !== session.usuarioId) break;
+        setAnswerResult({ correcta: msg.correcta, puntos: msg.puntos });
         break;
       case 'LEADERBOARD':
         setParticipants((prev) => mergeLeaderboard(prev, msg.ranking, session.usuarioId));
@@ -319,6 +326,7 @@ export default function TriviaRoomPage() {
     setQuestion(null);
     setSelected(null);
     setAnswered(false);
+    setAnswerResult(null);
     setFinalRanking([]);
     setWinnerId(null);
   }
@@ -759,14 +767,28 @@ export default function TriviaRoomPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
               {question.opciones.map((option, i) => {
-                // trivia-service nunca manda la respuesta correcta — solo se puede marcar cuál elegiste.
+                // Mientras no llega RESPUESTA_REGISTRADA no se sabe si fue correcta — se marca
+                // solo cuál elegiste. En cuanto llega (es casi inmediato), se pinta verde/rojo.
                 const isSelected = answered && i === selected;
                 const locked = answered || timeUp;
-                const stateClasses = isSelected
-                  ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
-                  : locked
-                    ? 'border-[#EEF2F6] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] opacity-60'
-                    : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] hover:border-[#1E73E8]/40 text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer';
+                const stateClasses =
+                  isSelected && answerResult
+                    ? answerResult.correcta
+                      ? 'border-[#4CE07E] bg-[#4CE07E]/10 text-[#15803D] dark:text-[#4CE07E]'
+                      : 'border-[#EF4444] bg-[#EF4444]/10 text-[#DC2626] dark:text-[#F87171]'
+                    : isSelected
+                      ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
+                      : locked
+                        ? 'border-[#EEF2F6] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] opacity-60'
+                        : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] hover:border-[#1E73E8]/40 text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer';
+                const badgeClasses =
+                  isSelected && answerResult
+                    ? answerResult.correcta
+                      ? 'bg-[#4CE07E]/20 text-[#15803D] dark:text-[#4CE07E]'
+                      : 'bg-[#EF4444]/20 text-[#DC2626] dark:text-[#F87171]'
+                    : isSelected
+                      ? 'bg-[#1E73E8]/20 text-[#1E73E8]'
+                      : 'bg-[#F7F9FA] dark:bg-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]';
                 return (
                   <button
                     key={i}
@@ -774,9 +796,7 @@ export default function TriviaRoomPage() {
                     disabled={locked}
                     className={`p-5 rounded-2xl border-2 text-left font-semibold transition-all flex items-center gap-4 ${stateClasses}`}
                   >
-                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-mono font-bold shrink-0 ${
-                      isSelected ? 'bg-[#1E73E8]/20 text-[#1E73E8]' : 'bg-[#F7F9FA] dark:bg-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]'
-                    }`}>
+                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-mono font-bold shrink-0 ${badgeClasses}`}>
                       {['A', 'B', 'C', 'D'][i]}
                     </span>
                     <span className="text-sm leading-snug">{option}</span>
@@ -785,10 +805,12 @@ export default function TriviaRoomPage() {
               })}
             </div>
 
-            {answered ? (
-              <p className="text-center mt-4 font-mono font-bold text-[#1E73E8]">
-                {miParticipante && miParticipante.lastGain > 0 ? `+${miParticipante.lastGain} puntos` : 'Respuesta enviada — esperando resultados...'}
+            {answerResult ? (
+              <p className={`text-center mt-4 font-mono font-bold ${answerResult.correcta ? 'text-[#15803D] dark:text-[#4CE07E]' : 'text-[#DC2626] dark:text-[#F87171]'}`}>
+                {answerResult.correcta ? `¡Correcto! +${answerResult.puntos} puntos` : 'Incorrecto'}
               </p>
+            ) : answered ? (
+              <p className="text-center mt-4 font-mono font-bold text-[#1E73E8]">Respuesta enviada — esperando resultados...</p>
             ) : timeUp ? (
               <p className="text-center mt-4 font-mono font-bold text-[#DC2626] dark:text-[#F87171]">Tiempo agotado</p>
             ) : null}

@@ -3,7 +3,7 @@
 // ver vite.config.ts) para no tener que lidiar con el origen en dev.
 //
 // Server -> cliente (un solo topic por sala, diferenciado por `type`):
-//   /topic/salas.{codigo}: SALA_UPDATE | PREGUNTA | LEADERBOARD | RESULTADOS_FINALES | ERROR
+//   /topic/salas.{codigo}: SALA_UPDATE | PREGUNTA | RESPUESTA_REGISTRADA | LEADERBOARD | RESULTADOS_FINALES | ERROR
 // Cliente -> server:
 //   /app/salas/{codigo}/unirse   {usuarioId, nombre}
 //   /app/salas/{codigo}/iniciar  (sin body)
@@ -28,6 +28,8 @@ export interface ParticipanteMsg {
 export type SalaMensaje =
   | { type: 'SALA_UPDATE'; codigo: string; estado: string; participantes: ParticipanteMsg[] }
   | { type: 'PREGUNTA'; codigo: string; indice: number; totalPreguntas: number; texto: string; opciones: string[]; duracionSegundos: number; enviadaEnEpochMs: number }
+  /** Llega apenas ESE jugador responde (no espera a los demás) — solo para feedback inmediato suyo. */
+  | { type: 'RESPUESTA_REGISTRADA'; codigo: string; usuarioId: number; indice: number; correcta: boolean; puntos: number }
   | { type: 'LEADERBOARD'; codigo: string; ranking: unknown[] }
   | { type: 'RESULTADOS_FINALES'; codigo: string; ranking: unknown[]; ganadorUsuarioId: number }
   | { type: 'ERROR'; message: string };
