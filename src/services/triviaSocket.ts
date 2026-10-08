@@ -3,7 +3,7 @@
 // ver vite.config.ts) para no tener que lidiar con el origen en dev.
 //
 // Server -> cliente (un solo topic por sala, diferenciado por `type`):
-//   /topic/salas/{codigo}: SALA_UPDATE | PREGUNTA | LEADERBOARD | RESULTADOS_FINALES | ERROR
+//   /topic/salas.{codigo}: SALA_UPDATE | PREGUNTA | LEADERBOARD | RESULTADOS_FINALES | ERROR
 // Cliente -> server:
 //   /app/salas/{codigo}/unirse   {usuarioId, nombre}
 //   /app/salas/{codigo}/iniciar  (sin body)
@@ -46,7 +46,7 @@ export class TriviaSocket {
       brokerURL: wsUrl(),
       reconnectDelay: 3000,
       onConnect: () => {
-        this.client.subscribe(`/topic/salas/${this.codigo}`, (frame: IMessage) => {
+        this.client.subscribe(`/topic/salas.${this.codigo}`, (frame: IMessage) => {
           try {
             handlers.onMessage(JSON.parse(frame.body) as SalaMensaje);
           } catch {
