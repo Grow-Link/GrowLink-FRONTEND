@@ -1,12 +1,20 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { useTheme } from '../store/ThemeContext';
-import type { Course, RoadmapNode, RoadmapEdge } from '../types';
+import { categoriaDesdeEnum } from '../services/cursosServiceApi';
+import { nivelLabel } from '../services/roadmapApi';
+import type { EstadoNodo, GraphNode, RoadmapGraphModel } from '../utils/roadmapGraph';
+
+// El mapa ilustrado (la versión "bonita" que también se ve en el landing) —
+// antes trabajaba con el Roadmap de mentira (RoadmapNode/RoadmapEdge +
+// Course[] del mock). Ahora consume directo el RoadmapGraphModel real de
+// cursos-service (ver utils/roadmapGraph.ts): cada GraphNode ya trae título,
+// categoría, nivel y estado, así que no hace falta una tabla de cursos aparte.
+// Misma interfaz de props que PrerequisiteGraph.tsx para poder intercambiarlos.
 
 interface RoadmapGraphProps {
-  nodes: RoadmapNode[];
-  edges: RoadmapEdge[];
-  courses: Course[];
-  onSelectCourse: (courseId: string) => void;
+  graph: RoadmapGraphModel;
+  selectedId: number | null;
+  onSelect: (id: number | null) => void;
   compact?: boolean;
 }
 
@@ -64,16 +72,25 @@ function segPath(a: Pt, b: Pt) {
   return `M ${a.x} ${a.y} C ${a.x} ${a.y + k}, ${b.x} ${b.y - k}, ${b.x} ${b.y}`;
 }
 
-export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, compact = false }: RoadmapGraphProps) {
+const ESTADO_LABEL: Record<EstadoNodo, string> = {
+  completed: 'Completado',
+  current: 'Estás aquí',
+  available: 'Disponible',
+  locked: 'Bloqueado',
+};
+
+export default function RoadmapGraph({ graph, selectedId, onSelect, compact = false }: RoadmapGraphProps) {
   const { isDark } = useTheme();
   const pal = isDark ? PALETTES.dark : PALETTES.light;
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+
+  // un solo camino serpenteante, en el mismo orden sugerido que usa el resto de la app
+  const nodes = useMemo(() => [...graph.nodes].sort((a, b) => a.etapa - b.etapa || a.orden - b.orden), [graph.nodes]);
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   const S = compact ? 140 : 172;
   const TOP = compact ? 210 : 250;
   const TAIL = compact ? 170 : 210;
-
-  const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
 
   const layout = useMemo(() => {
     const start: Pt = { x: 400, y: TOP - 105 };
@@ -235,20 +252,13 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
     return els;
   }, [nodes.length, points, H, pal, S, TOP]);
 
-  const hoveredNode = hoveredId ? nodes.find((n) => n.id === hoveredId) : undefined;
-  const relatedIds = useMemo(() => {
-    if (!hoveredNode) return { prereq: new Set<string>(), unlocks: new Set<string>() };
-    return {
-      prereq: new Set(edges.filter((e) => e.to === hoveredNode.courseId).map((e) => e.from)),
-      unlocks: new Set(edges.filter((e) => e.from === hoveredNode.courseId).map((e) => e.to)),
-    };
-  }, [hoveredNode, edges]);
-
-  const idxByCourse = useMemo(() => new Map(nodes.map((n, i) => [n.courseId, i])), [nodes]);
+  const hoveredNode = hoveredId !== null ? byId.get(hoveredId) : undefined;
+  const focusNode = hoveredNode ?? (selectedId !== null ? byId.get(selectedId) : undefined);
+  const idxById = useMemo(() => new Map(nodes.map((n, i) => [n.id, i])), [nodes]);
 
   const relationArcs = useMemo(() => {
-    if (!hoveredNode) return [];
-    const hi = idxByCourse.get(hoveredNode.courseId);
+    if (!focusNode) return [];
+    const hi = idxById.get(focusNode.id);
     if (hi === undefined) return [];
     const h = nodePts[hi];
     const arcs: { d: string; kind: 'prereq' | 'unlock'; key: string }[] = [];
@@ -262,20 +272,20 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
         key: k,
       });
     };
-    relatedIds.prereq.forEach((cid) => {
-      const i = idxByCourse.get(cid);
-      if (i !== undefined) build(nodePts[i], 'prereq', `p-${cid}`);
+    focusNode.requiere.forEach((id) => {
+      const i = idxById.get(id);
+      if (i !== undefined) build(nodePts[i], 'prereq', `p-${id}`);
     });
-    relatedIds.unlocks.forEach((cid) => {
-      const i = idxByCourse.get(cid);
-      if (i !== undefined) build(nodePts[i], 'unlock', `u-${cid}`);
+    focusNode.desbloquea.forEach((id) => {
+      const i = idxById.get(id);
+      if (i !== undefined) build(nodePts[i], 'unlock', `u-${id}`);
     });
     return arcs;
-  }, [hoveredNode, idxByCourse, nodePts, relatedIds]);
+  }, [focusNode, idxById, nodePts]);
 
   const trailSegments = points.slice(0, -1).map((a, k) => {
     const node = nodes[k];
-    const done = node && (node.status === 'completed' || node.status === 'current');
+    const done = node && (node.estado === 'completed' || node.estado === 'current');
     return done ? segPath(a, points[k + 1]) : null;
   });
 
@@ -298,7 +308,7 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
         )}
         <path d={roadD} fill="none" stroke={pal.dash} strokeWidth={3} strokeDasharray="10 12" strokeLinecap="round" opacity={0.9} />
 
-        {/* relations on hover */}
+        {/* relations on hover/select */}
         {relationArcs.map((a) => (
           <g key={a.key}>
             <path d={a.d} fill="none" stroke="#FFFFFF" strokeWidth={7} strokeLinecap="round" opacity={0.85} />
@@ -333,17 +343,16 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
 
       {/* nodes */}
       {nodes.map((node, i) => {
-        const course = courseById.get(node.courseId);
-        if (!course) return null;
         const pt = nodePts[i];
         const side: 'left' | 'right' = pt.x < 400 ? 'left' : 'right';
-        const isCurrent = node.status === 'current';
-        const isLocked = node.status === 'locked';
-        const isDone = node.status === 'completed';
-        const isStale = course.status !== 'active' && !isDone;
+        const isCurrent = node.estado === 'current';
+        const isLocked = node.estado === 'locked';
+        const isDone = node.estado === 'completed';
+        const isStale = node.inactivo && !isDone;
         const hovered = hoveredId === node.id;
-        const isPrereq = relatedIds.prereq.has(node.courseId);
-        const isUnlock = relatedIds.unlocks.has(node.courseId);
+        const isSelected = selectedId === node.id;
+        const isPrereq = !!focusNode && focusNode.id !== node.id && focusNode.requiere.includes(node.id);
+        const isUnlock = !!focusNode && focusNode.id !== node.id && focusNode.desbloquea.includes(node.id);
         const size = isCurrent ? 76 : 58;
 
         const nodeClasses = isDone
@@ -354,8 +363,8 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
           ? 'bg-[#B6C2D4] dark:bg-[#4A5F7C] text-white ring-4 ring-white/70 dark:ring-white/20'
           : 'bg-white text-[#1E73E8] ring-4 ring-[#1E73E8]';
 
-        const prereqTitles = edges.filter((e) => e.to === node.courseId).map((e) => courseById.get(e.from)?.title).filter(Boolean) as string[];
-        const unlockTitles = edges.filter((e) => e.from === node.courseId).map((e) => courseById.get(e.to)?.title).filter(Boolean) as string[];
+        const prereqTitles = node.requiere.map((id) => byId.get(id)?.titulo).filter(Boolean) as string[];
+        const unlockTitles = node.desbloquea.map((id) => byId.get(id)?.titulo).filter(Boolean) as string[];
 
         return (
           <div
@@ -376,14 +385,16 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
             )}
 
             <button
-              onClick={() => !isLocked && onSelectCourse(course.id)}
+              type="button"
+              onClick={() => onSelect(isSelected ? null : node.id)}
               onFocus={() => setHoveredId(node.id)}
               onBlur={() => setHoveredId((h) => (h === node.id ? null : h))}
-              disabled={isLocked}
-              aria-label={`${course.title} — ${node.status}`}
-              className={`relative rounded-full flex items-center justify-center font-display font-bold text-xl shadow-xl transition-transform ${nodeClasses} ${
-                isLocked ? 'cursor-not-allowed' : 'cursor-pointer hover:scale-110'
-              } ${isPrereq ? 'outline outline-4 outline-offset-4 outline-[#1E73E8]' : isUnlock ? 'outline outline-4 outline-offset-4 outline-[#12C2A8]' : ''}`}
+              aria-label={`${node.titulo} — ${ESTADO_LABEL[node.estado]}`}
+              aria-pressed={isSelected}
+              className={`relative rounded-full flex items-center justify-center font-display font-bold text-xl shadow-xl transition-transform cursor-pointer hover:scale-110 ${nodeClasses} ${
+                isSelected ? 'outline outline-4 outline-offset-4 outline-[#0B1F3A] dark:outline-[#E2EBF6]' :
+                isPrereq ? 'outline outline-4 outline-offset-4 outline-[#1E73E8]' : isUnlock ? 'outline outline-4 outline-offset-4 outline-[#12C2A8]' : ''
+              }`}
               style={{ width: size, height: size }}
             >
               {isDone ? (
@@ -410,8 +421,8 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
               }}
             >
               <div className="rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 border shadow-md backdrop-blur-sm bg-white/90 dark:bg-[#0B1F3A]/85 border-white dark:border-white/10">
-                <p className="font-display font-bold leading-snug text-[11px] sm:text-sm text-[#0B1F3A] dark:text-[#E2EBF6] line-clamp-2">{course.title}</p>
-                <p className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#6B7A99] dark:text-[#8BA5C2] mt-0.5 truncate">{course.level}</p>
+                <p className="font-display font-bold leading-snug text-[11px] sm:text-sm text-[#0B1F3A] dark:text-[#E2EBF6] line-clamp-2">{node.titulo}</p>
+                <p className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#6B7A99] dark:text-[#8BA5C2] mt-0.5 truncate">{nivelLabel(node.nivel)}</p>
                 {isStale && <p className="text-[9px] sm:text-[10px] font-bold text-[#B45309] dark:text-[#FBBF24] mt-0.5">No disponible</p>}
               </div>
             </div>
@@ -425,9 +436,11 @@ export default function RoadmapGraph({ nodes, edges, courses, onSelectCourse, co
                 }`}
               >
                 <div className="rounded-xl bg-[#0B1F3A] border border-white/10 px-3.5 py-3 shadow-2xl">
-                  <p className="text-xs font-bold text-white leading-snug">{course.title}</p>
-                  <p className="text-[11px] text-[#8BA5C2] leading-snug mt-1 line-clamp-3">{course.description}</p>
-                  <p className="text-[10px] font-mono text-[#4CE07E] mt-1.5 line-clamp-1">{course.skills.join(' · ')}</p>
+                  <p className="text-xs font-bold text-white leading-snug">{node.titulo}</p>
+                  <p className="text-[11px] text-[#8BA5C2] leading-snug mt-1">
+                    {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)} · Etapa {node.etapa + 1}
+                  </p>
+                  <p className="text-[10px] font-mono text-[#4CE07E] mt-1.5">{ESTADO_LABEL[node.estado]}</p>
                   {prereqTitles.length > 0 && (
                     <p className="text-[10px] text-[#8BA5C2] mt-2 leading-snug">
                       <span className="font-mono font-bold text-[#7CB6FF]">REQUIERE </span>

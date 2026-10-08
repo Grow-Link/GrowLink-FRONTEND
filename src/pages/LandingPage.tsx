@@ -9,7 +9,7 @@ import { useMouseTilt } from '../hooks/useMouseTilt';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import { mockCourses, CATEGORIES } from '../services/mockData';
-import type { RoadmapNode, RoadmapEdge } from '../types';
+import type { RoadmapGraphModel } from '../utils/roadmapGraph';
 
 const SECTIONS = [
   { id: 'hero', label: 'Inicio' },
@@ -26,24 +26,26 @@ const NAV_LINKS = [
   { label: 'Para publicadores', href: '#publicadores' },
 ];
 
-const DEMO_ROADMAP_NODES: RoadmapNode[] = [
-  { id: 'd-sis-1', courseId: 'sis-1', tier: 0, status: 'completed' },
-  { id: 'd-sis-2', courseId: 'sis-2', tier: 0, status: 'completed' },
-  { id: 'd-adm-1', courseId: 'adm-1', tier: 0, status: 'completed' },
-  { id: 'd-sis-3', courseId: 'sis-3', tier: 1, status: 'current' },
-  { id: 'd-sis-4', courseId: 'sis-4', tier: 1, status: 'available' },
-  { id: 'd-adm-3', courseId: 'adm-3', tier: 1, status: 'available' },
-  { id: 'd-sis-5', courseId: 'sis-5', tier: 2, status: 'locked' },
-  { id: 'd-adm-4', courseId: 'adm-4', tier: 2, status: 'locked' },
-];
-const DEMO_ROADMAP_EDGES: RoadmapEdge[] = [
-  { from: 'sis-1', to: 'sis-3' },
-  { from: 'sis-2', to: 'sis-3' },
-  { from: 'sis-1', to: 'sis-4' },
-  { from: 'sis-3', to: 'sis-5' },
-  { from: 'adm-1', to: 'adm-3' },
-  { from: 'adm-3', to: 'adm-4' },
-];
+// Demo decorativa del landing (sin sesión, no hay roadmap real que mostrar) —
+// con la misma forma que arma buildRoadmapGraph() para cursos-service, así el
+// mapa ilustrado usa exactamente el mismo componente que la app real.
+const DEMO_ROADMAP_GRAPH: RoadmapGraphModel = {
+  etapas: 3,
+  nodes: [
+    { id: 1, titulo: 'Fundamentos de Programación', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', orden: 0, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [4, 5] },
+    { id: 2, titulo: 'Bases de Datos Relacionales', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', orden: 1, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [4] },
+    { id: 3, titulo: 'Contabilidad para no Contadores', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'PRINCIPIANTE', orden: 2, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [6] },
+    { id: 4, titulo: 'Estructuras de Datos y Algoritmos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', orden: 3, etapa: 1, estado: 'current', inactivo: false, requiere: [1, 2], externos: [], desbloquea: [7] },
+    { id: 5, titulo: 'Redes y Sistemas Operativos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', orden: 4, etapa: 1, estado: 'available', inactivo: false, requiere: [1], externos: [], desbloquea: [] },
+    { id: 6, titulo: 'Finanzas Corporativas', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', orden: 5, etapa: 1, estado: 'available', inactivo: false, requiere: [3], externos: [], desbloquea: [8] },
+    { id: 7, titulo: 'Inteligencia Artificial Aplicada', categoria: 'INGENIERIA_SISTEMAS', nivel: 'AVANZADO', orden: 6, etapa: 2, estado: 'locked', inactivo: false, requiere: [4], externos: [], desbloquea: [] },
+    { id: 8, titulo: 'Gestión Estratégica y de Proyectos', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'AVANZADO', orden: 7, etapa: 2, estado: 'locked', inactivo: false, requiere: [6], externos: [], desbloquea: [] },
+  ],
+  edges: [
+    { from: 1, to: 4 }, { from: 2, to: 4 }, { from: 1, to: 5 }, { from: 4, to: 7 },
+    { from: 3, to: 6 }, { from: 6, to: 8 },
+  ],
+};
 
 const STEPS = [
   {
@@ -377,11 +379,10 @@ export default function LandingPage() {
             <Reveal delay={150}>
               <div className="max-w-[560px] mx-auto rounded-2xl shadow-2xl shadow-[#0B1F3A]/15 dark:shadow-none border border-white dark:border-white/10">
                 <RoadmapGraph
-                  nodes={DEMO_ROADMAP_NODES}
-                  edges={DEMO_ROADMAP_EDGES}
-                  courses={mockCourses}
+                  graph={DEMO_ROADMAP_GRAPH}
+                  selectedId={null}
+                  onSelect={() => navigate('select-user')}
                   compact
-                  onSelectCourse={() => navigate('select-user')}
                 />
               </div>
             </Reveal>
