@@ -47,6 +47,7 @@ export default function CourseCard({ course, onSelect, isCompleted, isPrerequisi
           </h3>
           <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1 font-medium">
             {LEVEL_LABEL[course.level]} · {course.category}
+            {course.durationHours != null && ` · ${course.durationHours}h`}
           </p>
         </div>
 

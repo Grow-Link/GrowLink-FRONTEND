@@ -438,9 +438,16 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
                 <div className="rounded-xl bg-[#0B1F3A] border border-white/10 px-3.5 py-3 shadow-2xl">
                   <p className="text-xs font-bold text-white leading-snug">{node.titulo}</p>
                   <p className="text-[11px] text-[#8BA5C2] leading-snug mt-1">
-                    {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)} · Etapa {node.etapa + 1}
+                    {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)}
+                    {node.duracionHoras != null && ` · ${node.duracionHoras}h`} · Etapa {node.etapa + 1}
                   </p>
                   <p className="text-[10px] font-mono text-[#4CE07E] mt-1.5">{ESTADO_LABEL[node.estado]}</p>
+                  {node.descripcion && (
+                    <p className="text-[11px] text-[#D1DCF0] leading-snug mt-2 line-clamp-3">{node.descripcion}</p>
+                  )}
+                  {node.habilidades && node.habilidades.length > 0 && (
+                    <p className="text-[10px] text-[#8BA5C2] mt-1.5 line-clamp-1">{node.habilidades.join(' · ')}</p>
+                  )}
                   {prereqTitles.length > 0 && (
                     <p className="text-[10px] text-[#8BA5C2] mt-2 leading-snug">
                       <span className="font-mono font-bold text-[#7CB6FF]">REQUIERE </span>

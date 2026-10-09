@@ -33,6 +33,8 @@ export interface Course {
   publisherName: string;
   status: CourseStatus;
   createdAt: string;
+  /** Horas estimadas de duración. null/undefined en cursos viejos o del mock que no lo tienen. */
+  durationHours?: number | null;
 }
 
 export interface RoadmapNode {

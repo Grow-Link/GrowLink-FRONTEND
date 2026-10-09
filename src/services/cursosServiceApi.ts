@@ -80,7 +80,20 @@ function parseCurso(data: any): Course {
     publisherName: `Publicador #${data?.publicadorUsuarioId ?? '?'}`,
     status: data?.activo ? 'active' : 'inactive',
     createdAt: new Date().toISOString(),
+    durationHours: typeof data?.duracionHoras === 'number' ? data.duracionHoras : null,
   };
+}
+
+/** Resuelve nombres de habilidades a sus ids reales, pidiendo de nuevo /api/habilidades para esa categoría (ver nota en crearCurso). */
+async function resolveHabilidadIds(categoriaEnum: string, nombres: string[]): Promise<number[]> {
+  const res = await authorizedFetch(
+    () => ({ url: `${CURSOS_API}/api/habilidades?categoria=${encodeURIComponent(categoriaEnum)}` }),
+    SERVICIO
+  );
+  const data = await readJson<unknown>(res, SERVICIO);
+  const raw: HabilidadBackend[] = Array.isArray(data) ? (data as HabilidadBackend[]) : [];
+  const nombresSeleccionados = new Set(nombres);
+  return raw.filter((h) => nombresSeleccionados.has(h.nombre)).map((h) => h.id);
 }
 
 /** GET /api/cursos — catálogo completo (o filtrado por categoría/nivel si se pasan). */
@@ -117,11 +130,13 @@ export interface CrearCursoInput {
   /** Nombre de categoría como lo muestra el frontend; se convierte al enum del backend aquí. */
   categoria: string;
   nivel: Level;
-  /** Nombres de habilidades seleccionadas (no ids — ver nota abajo). */
+  /** Nombres de habilidades seleccionadas (no ids — ver nota en resolveHabilidadIds). */
   habilidades: string[];
   linkContenido: string;
   publicadorUsuarioId: number;
   prerequisitoIds: number[];
+  /** Entero 1-500, obligatorio. */
+  duracionHoras: number;
 }
 
 /**
@@ -133,15 +148,7 @@ export interface CrearCursoInput {
  */
 export async function crearCurso(input: CrearCursoInput): Promise<Course> {
   const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
-
-  const habilidadesRes = await authorizedFetch(
-    () => ({ url: `${CURSOS_API}/api/habilidades?categoria=${encodeURIComponent(categoriaEnum)}` }),
-    SERVICIO
-  );
-  const habilidadesData = await readJson<unknown>(habilidadesRes, SERVICIO);
-  const habilidadesRaw: HabilidadBackend[] = Array.isArray(habilidadesData) ? (habilidadesData as HabilidadBackend[]) : [];
-  const nombresSeleccionados = new Set(input.habilidades);
-  const habilidadIds = habilidadesRaw.filter((h) => nombresSeleccionados.has(h.nombre)).map((h) => h.id);
+  const habilidadIds = await resolveHabilidadIds(categoriaEnum, input.habilidades);
 
   const body = {
     titulo: input.titulo,
@@ -152,11 +159,46 @@ export async function crearCurso(input: CrearCursoInput): Promise<Course> {
     linkContenido: input.linkContenido,
     publicadorUsuarioId: input.publicadorUsuarioId,
     prerequisitoIds: input.prerequisitoIds,
+    duracionHoras: input.duracionHoras,
   };
   const res = await authorizedFetch(
     () => ({
       url: `${CURSOS_API}/api/cursos`,
       init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    }),
+    SERVICIO
+  );
+  return parseCurso(await readJson<unknown>(res, SERVICIO));
+}
+
+export interface EditarCursoInput {
+  titulo: string;
+  descripcion: string;
+  nivel: Level;
+  /** Nombre de categoría como lo muestra el frontend — se usa solo para resolver habilidadIds, EditarCursoRequest no cambia la categoría del curso. */
+  categoria: string;
+  habilidades: string[];
+  linkContenido: string;
+  duracionHoras: number;
+}
+
+/** PUT /api/cursos/{id} — edita un curso existente. No se puede cambiar de categoría ni de publicador por esta vía. */
+export async function editarCurso(id: string | number, input: EditarCursoInput): Promise<Course> {
+  const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
+  const habilidadIds = await resolveHabilidadIds(categoriaEnum, input.habilidades);
+
+  const body = {
+    titulo: input.titulo,
+    descripcion: input.descripcion,
+    nivel: NIVEL_A_BACKEND[input.nivel],
+    habilidadIds,
+    linkContenido: input.linkContenido,
+    duracionHoras: input.duracionHoras,
+  };
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos/${id}`,
+      init: { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     }),
     SERVICIO
   );

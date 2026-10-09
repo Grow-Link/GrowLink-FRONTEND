@@ -6,25 +6,76 @@ import { useNavigation } from '../store/NavigationContext';
 import { useAppData } from '../store/AppDataContext';
 import { getSession } from '../services/backendSession';
 import { LEVELS } from '../services/mockData';
-import { CATEGORIAS_CURSOS, crearCurso, getHabilidades, sugerirPrerequisitos, type PrerequisitoSugerido } from '../services/cursosServiceApi';
-import type { Level } from '../types';
+import {
+  CATEGORIAS_CURSOS,
+  crearCurso,
+  editarCurso,
+  getHabilidades,
+  obtenerCurso,
+  sugerirPrerequisitos,
+  type PrerequisitoSugerido,
+} from '../services/cursosServiceApi';
+import type { Course, Level } from '../types';
 
 const LEVEL_RANK: Record<Level, number> = { principiante: 0, intermedio: 1, avanzado: 2 };
+const MIN_HORAS = 1;
+const MAX_HORAS = 500;
 
 export default function PublishCoursePage() {
   const { navigate, paramId, currentUser } = useNavigation();
   const { courses, getCourse, updateCourse } = useAppData();
 
-  const editingCourse = paramId ? getCourse(paramId) : undefined;
-  const isEditing = Boolean(editingCourse);
+  const mockEditingCourse = paramId ? getCourse(paramId) : undefined;
 
-  const [title, setTitle] = useState(editingCourse?.title ?? '');
-  const [description, setDescription] = useState(editingCourse?.description ?? '');
-  const [category, setCategory] = useState(editingCourse?.category ?? CATEGORIAS_CURSOS[0]);
-  const [level, setLevel] = useState<Level>(editingCourse?.level ?? 'principiante');
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(editingCourse?.skills ?? []);
-  const [contentUrl, setContentUrl] = useState(editingCourse?.contentUrl ?? '');
-  const [prerequisites, setPrerequisites] = useState<string[]>(editingCourse?.prerequisites ?? []);
+  // El catálogo real (CourseCatalogPage) ya publica cursos de cursos-service con ids
+  // numéricos que no existen en el mock local — si "editar" apunta a uno de esos,
+  // se busca ahí. undefined = todavía sin intentar/cargando, null = no existe.
+  const [remoteEditingCourse, setRemoteEditingCourse] = useState<Course | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (mockEditingCourse || !paramId) {
+      setRemoteEditingCourse(undefined);
+      return;
+    }
+    let ignore = false;
+    obtenerCurso(paramId)
+      .then((c) => {
+        if (!ignore) setRemoteEditingCourse(c);
+      })
+      .catch(() => {
+        if (!ignore) setRemoteEditingCourse(null);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [paramId, mockEditingCourse]);
+
+  const editingCourse = mockEditingCourse ?? remoteEditingCourse ?? undefined;
+  const isEditing = Boolean(editingCourse);
+  const isRemoteEdit = !mockEditingCourse && Boolean(remoteEditingCourse);
+  const stillLoadingEdit = Boolean(paramId) && !mockEditingCourse && remoteEditingCourse === undefined;
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<string>(CATEGORIAS_CURSOS[0]);
+  const [level, setLevel] = useState<Level>('principiante');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [contentUrl, setContentUrl] = useState('');
+  const [prerequisites, setPrerequisites] = useState<string[]>([]);
+  const [durationHours, setDurationHours] = useState<number | ''>('');
+
+  // Precarga el formulario en cuanto haya un curso para editar (mock de una, remoto cuando llega el fetch).
+  useEffect(() => {
+    if (!editingCourse) return;
+    setTitle(editingCourse.title);
+    setDescription(editingCourse.description);
+    setCategory(editingCourse.category);
+    setLevel(editingCourse.level);
+    setSelectedSkills(editingCourse.skills);
+    setContentUrl(editingCourse.contentUrl);
+    setPrerequisites(editingCourse.prerequisites);
+    setDurationHours(editingCourse.durationHours ?? '');
+  }, [editingCourse]);
 
   const [skillsOptions, setSkillsOptions] = useState<string[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -40,10 +91,10 @@ export default function PublishCoursePage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (editingCourse && editingCourse.publisherId !== currentUser?.id) {
+    if (editingCourse && editingCourse.publisherId !== currentUser?.id && !isRemoteEdit) {
       navigate('my-courses');
     }
-  }, [editingCourse, currentUser, navigate]);
+  }, [editingCourse, currentUser, navigate, isRemoteEdit]);
 
   // Catálogo cerrado de habilidades por categoría, desde cursos-service.
   useEffect(() => {
@@ -105,15 +156,36 @@ export default function PublishCoursePage() {
     setPrerequisites((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
   }
 
+  const validHoras = durationHours !== '' && durationHours >= MIN_HORAS && durationHours <= MAX_HORAS;
   const canSuggest = title.trim().length > 0 && level !== 'principiante' && !suggestLoading;
-  const canSubmit = Boolean(title.trim() && description.trim() && contentUrl.trim() && selectedSkills.length > 0 && !submitting);
+  const canSubmit = Boolean(title.trim() && description.trim() && contentUrl.trim() && selectedSkills.length > 0 && validHoras && !submitting);
 
   async function handleSubmit() {
-    if (!currentUser || !canSubmit) return;
+    if (!currentUser || !canSubmit || durationHours === '') return;
+
     if (isEditing && editingCourse) {
-      // Editar sigue sobre el curso local mock — crearCurso() en cursos-service es solo para publicar nuevos.
-      updateCourse(editingCourse.id, { title, description, category, level, skills: selectedSkills, contentUrl, prerequisites });
-      navigate('my-courses');
+      setSubmitting(true);
+      setSubmitError(null);
+      try {
+        if (isRemoteEdit) {
+          await editarCurso(editingCourse.id, {
+            titulo: title,
+            descripcion: description,
+            nivel: level,
+            categoria: category,
+            habilidades: selectedSkills,
+            linkContenido: contentUrl,
+            duracionHoras: durationHours,
+          });
+        } else {
+          updateCourse(editingCourse.id, { title, description, category, level, skills: selectedSkills, contentUrl, prerequisites, durationHours });
+        }
+        navigate('my-courses');
+      } catch (err) {
+        setSubmitError(err instanceof Error ? err.message : 'No se pudo guardar el curso.');
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -136,6 +208,7 @@ export default function PublishCoursePage() {
         linkContenido: contentUrl,
         publicadorUsuarioId: session.usuarioId,
         prerequisitoIds,
+        duracionHoras: durationHours,
       });
       navigate('my-courses');
     } catch (err) {
@@ -149,6 +222,20 @@ export default function PublishCoursePage() {
     ? CATEGORIAS_CURSOS
     : [category, ...CATEGORIAS_CURSOS];
 
+  if (stillLoadingEdit) {
+    return (
+      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24 flex justify-center text-[#12C2A8]">
+          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
       <Navbar />
@@ -161,6 +248,9 @@ export default function PublishCoursePage() {
                 {isEditing ? 'Editar curso' : 'Publicar curso'}
               </h1>
               <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">Define categoría, nivel y prerequisitos — así la IA lo incorpora correctamente a los roadmaps.</p>
+              {isRemoteEdit && (
+                <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1">La categoría no se puede cambiar al editar un curso ya publicado.</p>
+              )}
             </div>
 
             <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 sm:p-6 space-y-4">
@@ -182,7 +272,8 @@ export default function PublishCoursePage() {
                   <select
                     value={category}
                     onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="w-full border rounded-xl px-3.5 py-2.5 bg-white dark:bg-[#132A47] border-[#DDE4ED] dark:border-[#1C3254] text-sm text-[#0B1F3A] dark:text-[#E2EBF6] outline-none focus:border-[#1E73E8] cursor-pointer"
+                    disabled={isRemoteEdit}
+                    className="w-full border rounded-xl px-3.5 py-2.5 bg-white dark:bg-[#132A47] border-[#DDE4ED] dark:border-[#1C3254] text-sm text-[#0B1F3A] dark:text-[#E2EBF6] outline-none focus:border-[#1E73E8] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -198,6 +289,18 @@ export default function PublishCoursePage() {
                   </select>
                 </div>
               </div>
+
+              <Input
+                label="Duración estimada (horas)"
+                type="number"
+                min={MIN_HORAS}
+                max={MAX_HORAS}
+                step={1}
+                value={durationHours}
+                onChange={(e) => setDurationHours(e.target.value === '' ? '' : Math.trunc(Number(e.target.value)))}
+                placeholder="Ej. 40"
+                error={durationHours !== '' && !validHoras ? `Debe ser un entero entre ${MIN_HORAS} y ${MAX_HORAS}.` : undefined}
+              />
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -368,6 +471,9 @@ export default function PublishCoursePage() {
               <div className="flex flex-wrap gap-2">
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-md border border-[#DDE4ED] dark:border-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2] bg-[#F7F9FA] dark:bg-[#132A47]">{category}</span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-md border border-[#1E73E8]/30 text-[#1E73E8] bg-[#EFF6FF] dark:bg-[#0D1F3C] capitalize">{level}</span>
+                {validHoras && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md border border-[#12C2A8]/30 text-[#0F766E] dark:text-[#2DD4BF] bg-[#12C2A8]/10">{durationHours}h</span>
+                )}
               </div>
               <div>
                 <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] leading-snug">{title || 'Título del curso'}</h3>

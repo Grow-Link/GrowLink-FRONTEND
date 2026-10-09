@@ -9,7 +9,7 @@ import { fetchRoadmap, generarRoadmap, nivelLabel, type RoadmapBackendData } fro
 import { categoriaDesdeEnum } from '../services/cursosServiceApi';
 import { buildRoadmapGraph, type GraphNode } from '../utils/roadmapGraph';
 import { timeAgo } from '../utils/format';
-import { downloadRoadmapPdf } from '../utils/roadmapPdf';
+import { downloadRoadmapPdf, type RoadmapPdfCurso } from '../utils/roadmapPdf';
 
 // HU-12: el roadmap guardado en cursos-service (HU-11) visto como grafo de
 // prerequisitos. Los datos vienen del backend real; el perfil (metas, intereses,
@@ -110,19 +110,50 @@ export default function RoadmapPage() {
   }
 
   async function handleDownloadPdf() {
-    if (!graphRef.current || !data) return;
+    if (!graphRef.current || !data || !graph) return;
     setDownloadingPdf(true);
     setDownloadError(null);
     try {
-      const nodes = data.roadmap.cursos;
-      const total = nodes.length;
+      const total = graph.nodes.length;
       const done = data.completados.size;
-      await downloadRoadmapPdf(graphRef.current, {
-        nombre: currentUser?.name ?? 'usuario',
-        progresoPct: total > 0 ? Math.round((done / total) * 100) : 0,
-        totalCursos: total,
-        completados: done,
+      const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+      const ordenados = [...graph.nodes].sort((a, b) => a.etapa - b.etapa || a.orden - b.orden);
+
+      const horas = ordenados.map((n) => n.duracionHoras).filter((h): h is number => typeof h === 'number');
+      const totalHoras = horas.length > 0 ? horas.reduce((a, b) => a + b, 0) : null;
+
+      const cursosPdf: RoadmapPdfCurso[] = ordenados.map((n, i) => {
+        const prereqTitles = [
+          ...n.requiere.map((id) => byId.get(id)?.titulo).filter((t): t is string => Boolean(t)),
+          ...n.externos.map((id) => data.externos.get(id)?.titulo ?? `Curso #${id}`),
+        ];
+        return {
+          orden: i + 1,
+          titulo: n.titulo,
+          categoria: categoriaDesdeEnum(n.categoria),
+          nivel: nivelLabel(n.nivel),
+          duracionHoras: n.duracionHoras ?? null,
+          descripcion: n.descripcion ?? '',
+          habilidades: n.habilidades ?? [],
+          prerequisiteTitles: prereqTitles,
+          completado: n.estado === 'completed',
+          linkContenido: n.linkContenido ?? '',
+        };
       });
+
+      await downloadRoadmapPdf(
+        graphRef.current,
+        {
+          nombre: currentUser?.name ?? 'usuario',
+          metas: profile?.metas ?? null,
+          nivel: profile?.nivel ?? null,
+          progresoPct: total > 0 ? Math.round((done / total) * 100) : 0,
+          totalCursos: total,
+          completados: done,
+          totalHoras,
+        },
+        cursosPdf
+      );
     } catch (e) {
       setDownloadError(e instanceof Error ? e.message : 'No se pudo generar el PDF.');
     } finally {
@@ -177,6 +208,8 @@ export default function RoadmapPage() {
   const current = nodes.find((n) => n.estado === 'current');
   const stale = nodes.some((n) => n.inactivo && n.estado !== 'completed');
   const selected = selectedId !== null ? byId.get(selectedId) : undefined;
+  const horasConDato = nodes.map((n) => n.duracionHoras).filter((h): h is number => typeof h === 'number');
+  const totalHoras = horasConDato.length > 0 ? horasConDato.reduce((a, b) => a + b, 0) : null;
 
   return (
     <div className={page}>
@@ -197,7 +230,8 @@ export default function RoadmapPage() {
             <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-2">
               {totalNodes === 0
                 ? 'Sin cursos por ahora'
-                : `${totalNodes} ${totalNodes === 1 ? 'curso' : 'cursos'} en ${graph.etapas} ${graph.etapas === 1 ? 'etapa' : 'etapas'}`}{' '}
+                : `${totalNodes} ${totalNodes === 1 ? 'curso' : 'cursos'} en ${graph.etapas} ${graph.etapas === 1 ? 'etapa' : 'etapas'}`}
+              {totalHoras != null && ` · ~${totalHoras}h estimadas`}{' '}
               · generado {timeAgo(data.roadmap.creadoEn)}
             </p>
             {data.roadmap.generadoPor === 'RESPALDO' && (
@@ -388,7 +422,8 @@ function CourseDetailPanel({
       </div>
       <p className="font-display font-bold text-lg leading-snug text-[#0B1F3A] dark:text-[#E2EBF6]">{node.titulo}</p>
       <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1 mb-4">
-        {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)} ·{' '}
+        {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)}
+        {node.duracionHoras != null && ` · ${node.duracionHoras}h`} ·{' '}
         <span className="font-semibold">{node.inactivo && node.estado !== 'completed' ? 'No disponible' : ESTADO_LABEL[node.estado]}</span>
       </p>
 
@@ -396,6 +431,34 @@ function CourseDetailPanel({
         <p className="text-xs rounded-lg p-2.5 mb-4 bg-[#FFFBEB] dark:bg-[#3A2A0D] text-[#B45309] dark:text-[#FBBF24]">
           Este curso fue dado de baja. Regenera tu roadmap para reemplazarlo.
         </p>
+      )}
+
+      {node.descripcion && (
+        <p className="text-sm text-[#0B1F3A] dark:text-[#E2EBF6] leading-relaxed mb-4">{node.descripcion}</p>
+      )}
+
+      {node.habilidades && node.habilidades.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {node.habilidades.map((s) => (
+            <span key={s} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {node.linkContenido && (
+        <a
+          href={node.linkContenido}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-center gap-2 w-full py-2 mb-4 rounded-xl text-xs font-semibold bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254] hover:bg-[#EEF2F6] dark:hover:bg-[#1C3254] transition-all"
+        >
+          Ir al contenido del curso
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
       )}
 
       <div className="space-y-4">

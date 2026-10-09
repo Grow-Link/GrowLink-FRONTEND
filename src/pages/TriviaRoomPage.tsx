@@ -121,7 +121,6 @@ export default function TriviaRoomPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const [wsErrorMsg, setWsErrorMsg] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const [participants, setParticipants] = useState<TriviaParticipant[]>([]);
   const [prevPositions, setPrevPositions] = useState<Record<string, number>>({});
@@ -135,28 +134,43 @@ export default function TriviaRoomPage() {
   const [finalRanking, setFinalRanking] = useState<TriviaParticipant[]>([]);
   const [winnerId, setWinnerId] = useState<number | null>(null);
 
+  const [revanchaInvite, setRevanchaInvite] = useState<{ nuevoCodigo: string; hostNombre: string; categoria?: string; numPreguntas?: number } | null>(null);
+  const [iProposedRevancha, setIProposedRevancha] = useState(false);
+  const [joiningRevancha, setJoiningRevancha] = useState(false);
+  const [revanchaError, setRevanchaError] = useState<string | null>(null);
+  const revanchaFetchedRef = useRef<Set<string>>(new Set());
+  // Cuando quien propone la revancha recibe su propio REVANCHA, la conexión WS se
+  // reusa (ver cambiarSala en triviaSocket.ts) en vez de cerrarse y abrirse de
+  // nuevo — este flag le dice al efecto de conexión que no la toque esa vez.
+  const skipNextReconnectRef = useRef(false);
+
   const socketRef = useRef<TriviaSocket | null>(null);
   const participantsRef = useRef<TriviaParticipant[]>([]);
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
 
-  // "unirse" hace dos cosas en el backend: registra la fila en sala_participante
-  // Y ata esta conexión STOMP a un usuarioId (sin eso, /responder no sabe quién
-  // contestó y el backend responde con un error de "usuario_id" nulo — se
-  // confirmó probando con dos usuarios reales). Al host, POST /api/salas ya lo
-  // registró como participante, así que su "unirse" choca con una llave
-  // duplicada — pero igual hay que mandarlo para que el backend asocie su sesión
-  // de WS; el error que devuelve ese choque se filtra para no alarmar de más
-  // (ver FILTERED_ERROR_SNIPPETS). El ref evita mandarlo dos veces si STOMP
-  // reconecta (o por el doble montaje de efectos de StrictMode en dev).
+  // "unirse" registra la fila en sala_participante (y es lo que dispara el
+  // SALA_UPDATE con la lista de participantes para todos). El backend NO
+  // asocia nada a la conexión WS — cada mensaje, incluido /responder, lleva
+  // su propio usuarioId explícito en el body, por eso funciona sin importar
+  // si "unirse" se mandó antes o no. Al host, POST /api/salas ya lo registró
+  // como participante, así que su "unirse" choca con una llave duplicada —
+  // se manda de todos modos (mismo flujo para todos) y ese error puntual se
+  // filtra para no alarmar de más (ver el "if" de sala_participante más abajo).
+  // El ref evita mandarlo dos veces si STOMP reconecta (o por el doble montaje
+  // de efectos de StrictMode en dev).
   const joinedCodeRef = useRef<string | null>(null);
 
-  const shareLink = sala ? `growlink.app/trivia/unirse/${sala.codigo}` : '';
-
   // Conexión STOMP: una por sala. Se abre al entrar a una sala (crear o unirse) y se cierra al salir.
+  // Si skipNextReconnectRef está prendido (revancha propia: ver enterRevanchaAsHost),
+  // esta vez no se toca — la conexión ya se movió a mano a la sala nueva.
   useEffect(() => {
     if (!sala || !session) return;
+    if (skipNextReconnectRef.current) {
+      skipNextReconnectRef.current = false;
+      return;
+    }
     const socket = new TriviaSocket(sala.codigo, {
       onMessage: handleSocketMessage,
       onConnectionChange: (connected) => {
@@ -170,6 +184,7 @@ export default function TriviaRoomPage() {
     socket.connect();
     socketRef.current = socket;
     return () => {
+      if (skipNextReconnectRef.current) return;
       socket.disconnect();
       socketRef.current = null;
     };
@@ -219,6 +234,22 @@ export default function TriviaRoomPage() {
         setStage('result');
         break;
       }
+      case 'REVANCHA':
+        if (msg.hostUsuarioId === session.usuarioId) {
+          // La propuse yo: paso directo, sin "unirse" (ver comentario en enterRevanchaAsHost).
+          void enterRevanchaAsHost(msg.nuevoCodigo);
+          break;
+        }
+        if (revanchaFetchedRef.current.has(msg.nuevoCodigo)) break;
+        revanchaFetchedRef.current.add(msg.nuevoCodigo);
+        obtenerSala(msg.nuevoCodigo)
+          .then((s) => {
+            setRevanchaInvite((prev) => prev ?? { nuevoCodigo: msg.nuevoCodigo, hostNombre: msg.hostNombre, categoria: s?.categoria, numPreguntas: s?.numPreguntas });
+          })
+          .catch(() => {
+            setRevanchaInvite((prev) => prev ?? { nuevoCodigo: msg.nuevoCodigo, hostNombre: msg.hostNombre });
+          });
+        break;
       case 'ERROR':
         // Ruido conocido e inofensivo: el "unirse" del host siempre choca con la fila que
         // ya insertó POST /api/salas (ver el comentario arriba de joinedCodeRef). No se
@@ -228,6 +259,92 @@ export default function TriviaRoomPage() {
         break;
     }
   }
+
+  /** Quien propone la revancha: el backend ya lo registró como host/participante (por el "revancha" que mandó), no hace falta "unirse". */
+  async function enterRevanchaAsHost(nuevoCodigo: string) {
+    const nuevaSala = await obtenerSala(nuevoCodigo).catch(() => null);
+    if (!nuevaSala || !socketRef.current || !session) return;
+    skipNextReconnectRef.current = true;
+    joinedCodeRef.current = nuevoCodigo;
+    socketRef.current.cambiarSala(nuevoCodigo);
+    setParticipants([{ id: String(session.usuarioId), name: session.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
+    setPrevPositions({});
+    setQuestion(null);
+    setSelected(null);
+    setAnswered(false);
+    setAnswerResult(null);
+    setFinalRanking([]);
+    setWinnerId(null);
+    setWsErrorMsg(null);
+    setRevanchaInvite(null);
+    setIsHost(true);
+    setSala(nuevaSala);
+    setStage('waiting');
+  }
+
+  async function acceptRevancha() {
+    if (!revanchaInvite) return;
+    setJoiningRevancha(true);
+    setRevanchaError(null);
+    try {
+      const nuevaSala = await obtenerSala(revanchaInvite.nuevoCodigo);
+      if (!nuevaSala) {
+        setRevanchaError('No encontramos la sala de revancha.');
+        setRevanchaInvite(null);
+        return;
+      }
+      // Conexión vieja se cierra normal (no se toca skipNextReconnectRef) y se abre
+      // una nueva al cambiar `sala` — ahí sí hay que mandar "unirse" otra vez.
+      joinedCodeRef.current = null;
+      setParticipants([]);
+      setPrevPositions({});
+      setQuestion(null);
+      setSelected(null);
+      setAnswered(false);
+      setAnswerResult(null);
+      setFinalRanking([]);
+      setWinnerId(null);
+      setWsErrorMsg(null);
+      setRevanchaInvite(null);
+      setIsHost(false);
+      setSala(nuevaSala);
+      setStage('waiting');
+    } catch (err) {
+      setRevanchaError(err instanceof Error ? err.message : 'No se pudo entrar a la revancha.');
+    } finally {
+      setJoiningRevancha(false);
+    }
+  }
+
+  function declineRevancha() {
+    setRevanchaInvite(null);
+  }
+
+  function proposeRevancha() {
+    if (!session || iProposedRevancha) return;
+    setIProposedRevancha(true);
+    socketRef.current?.revancha(session.usuarioId, session.nombre);
+  }
+
+  // Cubre a quien llegó tarde o se reconectó: si la sala ya tiene una revancha
+  // propuesta, al entrar a resultados también se le muestra la invitación.
+  useEffect(() => {
+    if (stage !== 'result' || !sala || iProposedRevancha) return;
+    let ignore = false;
+    obtenerSala(sala.codigo)
+      .then((s) => {
+        if (ignore || !s?.revanchaCodigo || revanchaFetchedRef.current.has(s.revanchaCodigo)) return;
+        revanchaFetchedRef.current.add(s.revanchaCodigo);
+        return obtenerSala(s.revanchaCodigo).then((nueva) => {
+          if (ignore) return;
+          setRevanchaInvite((prev) => prev ?? { nuevoCodigo: s.revanchaCodigo!, hostNombre: 'El anfitrión', categoria: nueva?.categoria, numPreguntas: nueva?.numPreguntas });
+        });
+      })
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+  }, [stage, sala, iProposedRevancha]);
 
   // Cuenta regresiva local de la pregunta: se deriva de enviadaEnEpochMs + duracionSegundos
   // (el servidor es quien manda cuándo se acaba el tiempo, esto solo lo refleja visualmente).
@@ -312,6 +429,7 @@ export default function TriviaRoomPage() {
 
   function resetAll() {
     joinedCodeRef.current = null;
+    revanchaFetchedRef.current.clear();
     setStage('lobby');
     setIsHost(false);
     setSala(null);
@@ -329,6 +447,9 @@ export default function TriviaRoomPage() {
     setAnswerResult(null);
     setFinalRanking([]);
     setWinnerId(null);
+    setRevanchaInvite(null);
+    setIProposedRevancha(false);
+    setRevanchaError(null);
   }
 
   const ranked = rankedParticipants();
@@ -551,17 +672,6 @@ export default function TriviaRoomPage() {
                   </span>
                 )}
               </div>
-              {isHost && (
-                <button
-                  onClick={() => { navigator.clipboard?.writeText(shareLink).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1800); }}
-                  className="mt-3 inline-flex items-center gap-2 text-xs text-[#1E73E8] font-semibold hover:underline cursor-pointer font-mono"
-                >
-                  {copied ? 'Enlace copiado' : shareLink}
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </button>
-              )}
             </div>
 
             {wsErrorMsg && (
@@ -687,12 +797,45 @@ export default function TriviaRoomPage() {
           )}
 
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="gradient" size="lg" onClick={resetAll}>Jugar de nuevo</Button>
+            <Button variant="gradient" size="lg" onClick={resetAll}>Nueva sala</Button>
+            <Button variant="secondary" size="lg" onClick={proposeRevancha} disabled={iProposedRevancha}>
+              {iProposedRevancha ? 'Revancha propuesta...' : 'Proponer revancha'}
+            </Button>
             <Button variant="secondary" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>
               Salir
             </Button>
           </div>
         </div>
+
+        {revanchaInvite && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={declineRevancha} />
+            <div className="relative bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] w-full max-w-md shadow-2xl p-6">
+              <h3 className="text-lg font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2">¡Revancha!</h3>
+              <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] mb-6 leading-relaxed">
+                <span className="font-semibold text-[#0B1F3A] dark:text-[#E2EBF6]">{revanchaInvite.hostNombre}</span> propone una revancha
+                {revanchaInvite.categoria ? ` de ${revanchaInvite.categoria}` : ''}
+                {revanchaInvite.numPreguntas ? ` (${revanchaInvite.numPreguntas} preguntas)` : ''}. ¿Entras?
+              </p>
+              {revanchaError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] mb-4">{revanchaError}</p>}
+              <div className="flex gap-3">
+                <button
+                  onClick={declineRevancha}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-[#DDE4ED] dark:border-[#1C3254] text-[#0B1F3A] dark:text-[#E2EBF6] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] transition-all cursor-pointer"
+                >
+                  No
+                </button>
+                <button
+                  onClick={acceptRevancha}
+                  disabled={joiningRevancha}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white gl-gradient transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {joiningRevancha ? 'Entrando...' : 'Sí, entrar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
