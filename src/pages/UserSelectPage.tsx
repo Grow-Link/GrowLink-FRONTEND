@@ -3,12 +3,11 @@ import logo from '../imports/logoGrowLink.png';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import LiveIndicator from '../components/LiveIndicator';
-import { mockCourses } from '../services/mockData';
 import { getUsuariosQuemados, rolDesdeBackend, type UsuarioQuemado } from '../services/usuariosServiceApi';
 import type { UserRole } from '../types';
 
 const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string }> = {
-  user: { label: 'Usuario', accent: '#1E73E8', ring: 'hover:border-[#1E73E8]/50' },
+  user: { label: 'Usuario', accent: '#0E8A7D', ring: 'hover:border-[#0E8A7D]/50' },
   publisher: { label: 'Publicador', accent: '#12C2A8', ring: 'hover:border-[#12C2A8]/50' },
   admin: { label: 'Administrador', accent: '#4CE07E', ring: 'hover:border-[#4CE07E]/50' },
 };
@@ -55,7 +54,7 @@ export default function UserSelectPage() {
     <div className="min-h-screen flex relative">
       <button
         onClick={toggle}
-        className="fixed top-4 right-4 z-20 w-9 h-9 rounded-lg flex items-center justify-center bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] shadow-sm transition-all cursor-pointer"
+        className="fixed top-4 right-4 z-20 w-9 h-9 rounded-lg flex items-center justify-center bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9] shadow-sm transition-all cursor-pointer"
         title={isDark ? 'Modo claro' : 'Modo oscuro'}
         aria-label={isDark ? 'Activar modo claro' : 'Activar modo oscuro'}
       >
@@ -71,7 +70,7 @@ export default function UserSelectPage() {
       </button>
 
       {/* Left panel — brand */}
-      <div className="hidden lg:flex w-[40%] bg-[#0B1F3A] flex-col justify-between p-12 relative overflow-hidden">
+      <div className="hidden lg:flex w-[40%] bg-[#1F2D2A] flex-col justify-between p-12 relative overflow-hidden">
         <div className="gl-float absolute top-0 right-0 w-80 h-80 rounded-full opacity-25 gl-gradient blur-3xl -translate-y-1/3 translate-x-1/4" />
         <div className="gl-float absolute bottom-0 left-0 w-64 h-64 rounded-full opacity-10 bg-[#12C2A8] blur-2xl translate-y-1/3 -translate-x-1/4" style={{ animationDelay: '-3s' }} />
         <div className="gl-float absolute top-1/3 left-1/4 w-40 h-40 rounded-full opacity-10 bg-[#4CE07E] blur-2xl" style={{ animationDelay: '-5s' }} />
@@ -90,7 +89,7 @@ export default function UserSelectPage() {
             Tu próximo salto<br />
             <span className="gl-gradient-text">empieza aquí.</span>
           </h1>
-          <p className="text-[#8BA5C2] text-lg leading-relaxed max-w-sm">
+          <p className="text-[#98B0A6] text-lg leading-relaxed max-w-sm">
             Roadmaps generados a partir de tus metas, cursos reales con prerequisitos, y trivia competitiva para reforzar lo aprendido.
           </p>
         </div>
@@ -98,21 +97,21 @@ export default function UserSelectPage() {
         <div className="relative z-10 inline-flex">
           <div className="gl-card-hover relative overflow-hidden border border-white/10 rounded-xl p-4 bg-white/5 backdrop-blur-sm">
             <div className="absolute top-0 left-0 w-full h-0.5 gl-gradient" />
-            <p className="text-2xl font-mono font-bold text-white">{mockCourses.filter((c) => c.status === 'active').length}</p>
-            <p className="text-xs text-[#8BA5C2] mt-1">Cursos en catálogo</p>
+            <p className="text-2xl font-mono font-bold text-white">{usuarios ? usuarios.length : '…'}</p>
+            <p className="text-xs text-[#98B0A6] mt-1">Usuarios de demostración</p>
           </div>
         </div>
       </div>
 
       {/* Right panel — seed user picker */}
-      <div className="flex-1 flex items-center justify-center p-5 sm:p-8 bg-[#F7F9FA] dark:bg-[#081629]">
+      <div className="flex-1 flex items-center justify-center p-5 sm:p-8 bg-[#F6F7F2] dark:bg-[#0E1815]">
         <div className="w-full max-w-xl">
           <img src={logo} alt="GrowLink" className="h-12 w-auto max-w-[180px] object-contain mb-8 lg:hidden" />
 
           <div className="mb-8">
             <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Acceso de demostración</span>
-            <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2">Elige con quién quieres entrar</h2>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1.5">Sin contraseña — cada perfil representa un rol distinto dentro de GrowLink.</p>
+            <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">Elige con quién quieres entrar</h2>
+            <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1.5">Sin contraseña — cada perfil representa un rol distinto dentro de GrowLink.</p>
           </div>
 
           {sessionExpired && !loginError && (
@@ -138,7 +137,7 @@ export default function UserSelectPage() {
               </button>
             </div>
           ) : usuarios === null ? (
-            <div className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] py-6">
+            <div className="flex items-center gap-2 text-sm text-[#6B7A74] dark:text-[#98B0A6] py-6">
               <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -166,25 +165,25 @@ export default function UserSelectPage() {
                             key={user.id}
                             onClick={() => handleLogin(user)}
                             disabled={loggingInId !== null}
-                            className={`gl-card-hover w-full flex items-center gap-4 p-4 rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-left cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${meta.ring}`}
+                            className={`gl-card-hover w-full flex items-center gap-4 p-4 rounded-2xl border border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F] text-left cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed ${meta.ring}`}
                           >
                             <div
                               className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-display font-bold shrink-0"
-                              style={{ background: `linear-gradient(135deg, ${meta.accent}, #0B1F3A)` }}
+                              style={{ background: `linear-gradient(135deg, ${meta.accent}, #1F2D2A)` }}
                             >
                               {initials}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] truncate">{user.nombre}</p>
-                              {user.cargo && <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] truncate mt-0.5">{user.cargo}</p>}
+                              <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{user.nombre}</p>
+                              {user.cargo && <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] truncate mt-0.5">{user.cargo}</p>}
                             </div>
                             {loggingIn ? (
-                              <svg className="w-4 h-4 text-[#6B7A99] dark:text-[#8BA5C2] shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <svg className="w-4 h-4 text-[#6B7A74] dark:text-[#98B0A6] shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                               </svg>
                             ) : (
-                              <svg className="w-4 h-4 text-[#6B7A99] dark:text-[#8BA5C2] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="w-4 h-4 text-[#6B7A74] dark:text-[#98B0A6] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                             )}

@@ -1,27 +1,22 @@
+import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import ConcurrenciaEnVivo from '../components/ConcurrenciaEnVivo';
+import Button from '../components/Button';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
-import { mockAdminMetrics } from '../services/mockData';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Area, AreaChart, Legend,
-} from 'recharts';
+import { listarAreas, type AreaResumen } from '../services/cursosServiceApi';
+import { obtenerDashboardConcurrencia, type DashboardConcurrencia } from '../services/metricasApi';
+import { listarGanadores, type PartidaConPodio } from '../services/triviaServiceApi';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-function KPI({ label, value, sub, trend, accent = false }: {
-  label: string; value: string; sub: string; trend?: string; accent?: boolean;
-}) {
+// Panel del administrador: todo sale de los servicios reales (catálogo de cursos y trivia), nada inventado.
+
+function KPI({ label, value, sub, accent = false }: { label: string; value: string; sub: string; accent?: boolean }) {
   return (
-    <div className={`rounded-2xl border p-6 flex flex-col justify-between min-h-[120px] ${
-      accent ? 'bg-[#0B1F3A] border-[#0B1F3A]' : 'bg-white dark:bg-[#0F2240] border-[#DDE4ED] dark:border-[#1C3254]'
-    }`}>
-      <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${accent ? 'text-[#8BA5C2]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>{label}</p>
+    <div className={`rounded-2xl border p-5 flex flex-col justify-between min-h-[120px] ${accent ? 'bg-gradient-to-br from-[#1F2D2A] to-[#0B6F65] border-transparent' : 'bg-white dark:bg-[#15231F] border-[#E1E6DF] dark:border-[#27403A]'}`}>
+      <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${accent ? 'text-[#BCC9C2]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>{label}</p>
       <div>
-        <p className={`text-4xl font-display font-bold font-mono tabular-nums ${accent ? 'text-white' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>{value}</p>
-        <div className="flex items-center gap-2 mt-1">
-          {trend && <span className={`text-xs font-semibold ${trend.startsWith('+') ? 'text-[#4CE07E]' : 'text-[#EF4444]'}`}>{trend}</span>}
-          <span className={`text-xs ${accent ? 'text-[#8BA5C2]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>{sub}</span>
-        </div>
+        <p className={`text-4xl font-display font-bold tabular-nums ${accent ? 'text-white' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>{value}</p>
+        <p className={`text-xs mt-1 ${accent ? 'text-[#BCC9C2]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>{sub}</p>
       </div>
     </div>
   );
@@ -30,11 +25,11 @@ function KPI({ label, value, sub, trend, accent = false }: {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#0B1F3A] border border-white/10 rounded-xl p-3 shadow-xl">
-      <p className="text-[#8BA5C2] text-xs font-mono mb-1">{label}</p>
+    <div className="bg-[#1F2D2A] border border-white/10 rounded-xl p-3 shadow-xl">
+      <p className="text-[#98B0A6] text-xs font-mono mb-1">{label}</p>
       {payload.map((entry: any) => (
         <p key={entry.name} className="text-sm font-semibold" style={{ color: entry.color }}>
-          {entry.name}: {typeof entry.value === 'number' && entry.value > 1000 ? entry.value.toLocaleString() : entry.value}
+          {entry.name}: {entry.value}
         </p>
       ))}
     </div>
@@ -43,124 +38,103 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function AdminDashboardPage() {
   const { navigate } = useNavigation();
-  const { courses } = useAppData();
-  const m = mockAdminMetrics;
-  const activeCourses = courses.filter((c) => c.status === 'active').length;
+  const [areas, setAreas] = useState<AreaResumen[] | null>(null);
+  const [trivia, setTrivia] = useState<DashboardConcurrencia | null>(null);
+  const [partidas, setPartidas] = useState<PartidaConPodio[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    setError(null);
+    Promise.all([listarAreas(), obtenerDashboardConcurrencia().catch(() => null), listarGanadores(6).catch(() => [] as PartidaConPodio[])])
+      .then(([a, t, p]) => {
+        if (!vivo) return;
+        setAreas(a);
+        setTrivia(t);
+        setPartidas(p);
+      })
+      .catch((e: unknown) => vivo && setError(e instanceof Error ? e.message : 'No se pudieron cargar las métricas.'));
+    return () => {
+      vivo = false;
+    };
+  }, [recarga]);
+
+  const totalCursos = (areas ?? []).reduce((s, a) => s + a.cursos, 0);
+  const totalHoras = (areas ?? []).reduce((s, a) => s + a.horasTotales, 0);
+  const datosAreas = (areas ?? []).map((a) => ({ area: a.etiqueta, cursos: a.cursos })).sort((a, b) => b.cursos - a.cursos);
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+    <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
       <Navbar />
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 sm:mb-10">
+      <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Panel de administración</span>
-            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-1">Métricas de plataforma</h1>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">Datos al {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-1">Métricas de plataforma</h1>
+            <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1">Datos reales al {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
-          <button
-            onClick={() => navigate('admin-courses')}
-            className="self-start text-sm text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254] hover:border-[#0B1F3A] dark:hover:border-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] px-4 py-2 rounded-xl transition-all cursor-pointer"
-          >
-            Moderar cursos
-          </button>
+          <Button variant="secondary" onClick={() => navigate('admin-courses')} className="self-start">Moderar cursos</Button>
         </div>
+
+        {error && (
+          <div role="alert" className="mb-6 rounded-2xl border border-[#FECACA] dark:border-[#4C1D1D] bg-[#FEF2F2] dark:bg-[#2A1111] p-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{error}</p>
+            <Button variant="secondary" size="sm" onClick={() => setRecarga((k) => k + 1)}>Reintentar</Button>
+          </div>
+        )}
 
         <ConcurrenciaEnVivo />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <div className="col-span-1">
-            <KPI label="Usuarios activos" value={m.activeUsers.toLocaleString()} sub="este mes" trend={`+${m.userGrowthPercent}%`} accent />
-          </div>
-          <KPI label="Completan su roadmap" value={`${m.roadmapCompletionRate}%`} sub="de usuarios con roadmap" trend="+3.8% vs trimestre anterior" />
-          <KPI label="Cursos activos" value={String(activeCourses)} sub="en el catálogo" />
-          <KPI label="Salas de trivia ahora" value={String(m.activeTriviaRoomsNow)} sub="en curso" trend="+5 vs hace 1h" />
-          <KPI label="Pico de concurrencia hoy" value={String(m.peakConcurrentToday)} sub="usuarios simultáneos" />
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+          <KPI label="Cursos activos" value={areas ? String(totalCursos) : '…'} sub="en el catálogo" accent />
+          <KPI label="Áreas con cursos" value={areas ? String(areas.length) : '…'} sub="disponibles hoy" />
+          <KPI label="Horas de contenido" value={areas ? String(totalHoras) : '…'} sub="sumando todos los cursos" />
+          <KPI label="Partidas de trivia" value={trivia ? String(trivia.partidasFinalizadas) : '…'} sub="terminadas" />
+          <KPI label="Jugadores en salas" value={trivia ? String(trivia.participantesConectados) : '…'} sub={trivia ? `${trivia.salasActivas} salas activas` : 'ahora mismo'} />
         </div>
 
-        <div className="flex flex-col lg:grid lg:grid-cols-[2fr_1fr] gap-6 mb-6">
-          <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <div>
-                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Concurrencia de hoy</h3>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">Usuarios activos y salas de trivia por franja horaria</p>
-              </div>
-              <span className="text-sm font-mono font-bold text-[#4CE07E] bg-[#F0FDF4] px-3 py-1 rounded-lg border border-[#BBF7D0]">Pico {m.peakConcurrentToday}</span>
-            </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={m.concurrency} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" vertical={false} />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="activeUsers" name="Usuarios activos" stroke="#1E73E8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                <Line type="monotone" dataKey="activeTriviaRooms" name="Salas de trivia" stroke="#12C2A8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="flex flex-col lg:grid lg:grid-cols-[1.4fr_1fr] gap-6">
+          <section className="bg-white dark:bg-[#15231F] rounded-2xl border border-[#E1E6DF] dark:border-[#27403A] p-5 sm:p-6">
+            <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg mb-1">Cursos por área</h2>
+            <p className="text-[#6B7A74] dark:text-[#98B0A6] text-sm mb-5">Cómo se reparte el catálogo hoy</p>
+            {areas === null ? (
+              <div className="h-64 rounded-xl bg-[#F6F7F2] dark:bg-[#1A2C27] animate-pulse" />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(220, datosAreas.length * 44)}>
+                <BarChart data={datosAreas} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E1E6DF" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#6B7A74', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="area" width={150} tick={{ fontSize: 11, fill: '#6B7A74' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="cursos" name="Cursos" fill="#12C2A8" radius={[0, 6, 6, 0]} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </section>
 
-          <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
-            <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-1">Cursos por categoría</h3>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mb-6">Distribución del catálogo</p>
-            <ResponsiveContainer width="100%" height={360}>
-              <BarChart data={m.categoryDistribution} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="category" width={130} tick={{ fontSize: 10, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="count" name="Cursos" fill="#12C2A8" radius={[0, 4, 4, 0]} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <section className="bg-gradient-to-br from-[#1F2D2A] to-[#0B6F65] rounded-2xl p-5 sm:p-6">
+            <h2 className="font-display font-bold text-white text-lg mb-4">Últimas partidas de trivia</h2>
+            {partidas.length === 0 ? (
+              <p className="text-sm text-[#BCC9C2]">Todavía no se ha jugado ninguna partida.</p>
+            ) : (
+              <ul className="space-y-3">
+                {partidas.map(({ partida }) => (
+                  <li key={partida.codigo} className="flex items-start gap-3">
+                    <span className="text-lg shrink-0">{partida.ganadorNombre ? '🏆' : '🤝'}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm text-white leading-snug truncate">{partida.ganadorNombre ? `Ganó ${partida.ganadorNombre}` : 'Sin ganador'}{partida.empate ? ' (empate)' : ''}</p>
+                      <p className="text-[11px] text-[#BCC9C2] font-mono">
+                        {partida.categoria} · {partida.totalJugadores} jugadores · {new Date(partida.finalizadaEn).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-
-        <div className="flex flex-col lg:grid lg:grid-cols-[2fr_1fr] gap-6">
-          <div className="bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <div>
-                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Cursos completados</h3>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm mt-0.5">Por mes — últimos 7 meses</p>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={m.monthlyData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="compGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#4CE07E" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#4CE07E" stopOpacity={0.01} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEF2F6" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7A99', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="completions" name="Completados" stroke="#4CE07E" strokeWidth={2.5} fill="url(#compGrad)" dot={false} activeDot={{ r: 4, fill: '#4CE07E', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-[#0B1F3A] rounded-2xl p-6">
-            <h3 className="font-display font-bold text-white text-lg mb-4">Actividad reciente</h3>
-            <div className="space-y-3">
-              {[
-                { msg: 'Nueva sala de trivia iniciada en Ingeniería de Sistemas', time: 'hace 4 min', color: '#12C2A8' },
-                { msg: '47 nuevos usuarios registrados hoy', time: 'hace 12 min', color: '#4CE07E' },
-                { msg: 'Sala de trivia finalizada — 6 jugadores', time: 'hace 28 min', color: '#1E73E8' },
-                { msg: 'Curso "Ciberseguridad Ofensiva" dado de baja', time: 'hace 1h', color: '#F59E0B' },
-                { msg: 'Nuevo curso publicado en Derecho', time: 'hace 2h', color: '#8BA5C2' },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ backgroundColor: item.color }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[#D1DCF0] text-xs leading-snug">{item.msg}</p>
-                    <p className="text-[#8BA5C2] text-[10px] font-mono mt-0.5">{item.time}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }

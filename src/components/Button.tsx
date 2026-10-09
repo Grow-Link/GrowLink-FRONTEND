@@ -7,9 +7,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<string, string> = {
-  primary: 'bg-[#1E73E8] text-white hover:bg-[#1660CC] active:bg-[#1455B8]',
-  secondary: 'bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254] hover:bg-[#EEF2F6] dark:hover:bg-[#1C3254]',
-  ghost: 'text-[#0B1F3A] dark:text-[#E2EBF6] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47]',
+  primary: 'bg-[#0E8A7D] text-white hover:bg-[#0B7368] active:bg-[#09645A]',
+  secondary: 'bg-[#F6F7F2] dark:bg-[#1A2C27] text-[#1F2D2A] dark:text-[#E6EFE9] border border-[#E1E6DF] dark:border-[#27403A] hover:bg-[#EDF1EA] dark:hover:bg-[#27403A]',
+  ghost: 'text-[#1F2D2A] dark:text-[#E6EFE9] hover:bg-[#F6F7F2] dark:hover:bg-[#1A2C27]',
   danger: 'bg-[#FEF2F2] dark:bg-[#2A1111] text-[#DC2626] dark:text-[#F87171] border border-[#FECACA] dark:border-[#4C1D1D] hover:bg-[#FEE2E2] dark:hover:bg-[#3A1616]',
   gradient: 'gl-gradient text-white hover:opacity-90 gl-glow-teal hover:scale-[1.02] active:scale-[0.97]',
 };

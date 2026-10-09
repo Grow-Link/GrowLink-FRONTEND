@@ -1,85 +1,43 @@
-// Roadmap real de cursos-service para HU-12 (ver utils/roadmapGraph.ts para el grafo).
+// Roadmap real de cursos-service: lo que devuelve el servidor se convierte en un "mapa por etapas"
+// (ver utils/roadmapModel.ts) con el estado de cada curso según lo que la persona ya aprobó.
 
-import type { UserProfile } from '../types';
-import type { RoadmapCursoInput } from '../utils/roadmapGraph';
-import { CATEGORIA_ENUM, type CategoriaCurso } from './cursosServiceApi';
-import { authorizedFetch, getSession, readJson, SessionExpiredError, CURSOS_API, type BackendSession } from './backendSession';
-
-function getSessionOrThrow(): BackendSession {
-  const session = getSession();
-  if (!session) throw new SessionExpiredError();
-  return session;
-}
-
-export interface RoadmapDto {
-  id: number;
-  usuarioId: number;
-  metas: string | null;
-  nivel: string;
-  creadoEn: string;
-  /** Quien armo el roadmap: la IA, o el modo de respaldo (sin IA). null en roadmaps viejos. */
-  generadoPor?: 'IA' | 'RESPALDO' | null;
-  cursos: RoadmapCursoInput[];
-}
-
-export interface CursoExterno {
-  titulo: string;
-  categoria: string;
-  nivel: string;
-  activo: boolean;
-}
-
-export interface RoadmapBackendData {
-  session: BackendSession;
-  roadmap: RoadmapDto;
-  completados: Set<number>;
-  inactivos: Set<number>;
-  /** Prerequisitos que no quedaron en la ruta, por id. Si alguno no se pudo cargar, simplemente no está. */
-  externos: Map<number, CursoExterno>;
-}
+import type { Level } from '../types';
+import { construirRoadmap, type RoadmapDto, type RoadmapView } from '../utils/roadmapModel';
+import { CATEGORIA_ENUM, NIVEL_A_BACKEND, type CategoriaCurso } from './cursosServiceApi';
+import { authorizedFetch, getSession, readJson, SessionExpiredError, CURSOS_API } from './backendSession';
 
 const SERVICIO = 'cursos-service';
 
-async function getJson<T>(path: (s: BackendSession) => string): Promise<T> {
-  const res = await authorizedFetch((s) => ({ url: `${CURSOS_API}${path(s)}` }), SERVICIO);
-  return readJson<T>(res, SERVICIO);
-}
+/** El roadmap más reciente de la persona con sesión, o null si todavía no tiene (404). */
+export async function fetchRoadmap(): Promise<RoadmapView | null> {
+  const session = getSession();
+  if (!session) throw new SessionExpiredError();
 
-/** El roadmap más reciente del usuario, o null si todavía no tiene (404). */
-export async function fetchRoadmap(): Promise<RoadmapBackendData | null> {
   const res = await authorizedFetch((s) => ({ url: `${CURSOS_API}/api/roadmap/mio?usuarioId=${s.usuarioId}` }), SERVICIO);
   if (res.status === 404) return null;
   const roadmap = await readJson<RoadmapDto>(res, SERVICIO);
-  const session = getSessionOrThrow();
 
-  const enRuta = new Set(roadmap.cursos.map((c) => c.cursoId));
-  const idsExternos = [...new Set(roadmap.cursos.flatMap((c) => c.prerequisitoIds))].filter((id) => !enRuta.has(id));
-
-  const [completados, estado, externos] = await Promise.all([
-    getJson<{ cursoId: number }[]>((s) => `/api/cursos/completados?usuarioId=${s.usuarioId}`),
-    enRuta.size > 0
-      ? getJson<{ cursoIdsInactivos: number[] }>(() => `/api/cursos/estado-roadmap?ids=${[...enRuta].join(',')}`)
-      : Promise.resolve({ cursoIdsInactivos: [] }),
-    Promise.allSettled(idsExternos.map((id) => getJson<CursoExterno & { id: number }>(() => `/api/cursos/${id}`))),
-  ]);
-
-  return {
-    session,
-    roadmap,
-    completados: new Set(completados.map((c) => c.cursoId)),
-    inactivos: new Set(estado.cursoIdsInactivos),
-    externos: new Map(
-      externos.flatMap((r) =>
-        r.status === 'fulfilled'
-          ? [[r.value.id, { titulo: r.value.titulo, categoria: r.value.categoria, nivel: r.value.nivel, activo: r.value.activo }] as const]
-          : []
-      )
-    ),
-  };
+  const completadosRes = await authorizedFetch(
+    (s) => ({ url: `${CURSOS_API}/api/cursos/completados?usuarioId=${s.usuarioId}` }),
+    SERVICIO
+  );
+  const completados = await readJson<{ cursoId: number }[]>(completadosRes, SERVICIO);
+  return construirRoadmap(roadmap, new Set(completados.map((c) => c.cursoId)));
 }
 
-/** HU-11: genera (o regenera) el roadmap con el perfil que el usuario llenó en el frontend. */
-export async function generarRoadmap(profile: Pick<UserProfile, 'goals' | 'interests' | 'level'>): Promise<void> {
+export interface PerfilParaRoadmap {
+  goals: string;
+  /** Nombres de categoría como los muestra el frontend. */
+  interests: string[];
+  level: Level;
+}
+
+/**
+ * HU-11: genera (o regenera) el roadmap con el perfil de la persona.
+ * Si la meta no tiene sentido el servidor responde 400, y si no hay cursos para lo que pide, 422. En los dos
+ * casos lanza un BackendError cuyo mensaje ya es el texto que se le muestra a la persona.
+ */
+export async function generarRoadmap(perfil: PerfilParaRoadmap): Promise<void> {
   const res = await authorizedFetch(
     (s) => ({
       url: `${CURSOS_API}/api/roadmap/generar`,
@@ -88,9 +46,9 @@ export async function generarRoadmap(profile: Pick<UserProfile, 'goals' | 'inter
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           usuarioId: s.usuarioId,
-          metas: profile.goals,
-          intereses: profile.interests.map((i) => CATEGORIA_ENUM[i as CategoriaCurso]).filter(Boolean),
-          nivel: profile.level.toUpperCase(),
+          metas: perfil.goals,
+          intereses: perfil.interests.map((i) => CATEGORIA_ENUM[i as CategoriaCurso] ?? i).filter(Boolean),
+          nivel: NIVEL_A_BACKEND[perfil.level],
         }),
       },
     }),

@@ -31,7 +31,7 @@ export type SalaMensaje =
   /** Llega apenas ESE jugador responde (no espera a los demás) — solo para feedback inmediato suyo. */
   | { type: 'RESPUESTA_REGISTRADA'; codigo: string; usuarioId: number; indice: number; correcta: boolean; puntos: number }
   | { type: 'LEADERBOARD'; codigo: string; ranking: unknown[] }
-  | { type: 'RESULTADOS_FINALES'; codigo: string; ranking: unknown[]; ganadorUsuarioId: number }
+  | { type: 'RESULTADOS_FINALES'; codigo: string; ranking: unknown[]; ganadorUsuarioId: number | null; ganadoresUsuarioIds?: number[]; empate?: boolean; numPreguntas?: number }
   | { type: 'ERROR'; message: string };
 
 export interface TriviaSocketHandlers {

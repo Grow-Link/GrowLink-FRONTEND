@@ -11,12 +11,12 @@ interface CheckpointPathProps {
 
 export default function CheckpointPath({ checkpoints, completedCount, variant = 'light' }: CheckpointPathProps) {
   const isDarkVariant = variant === 'dark';
-  const mutedText = isDarkVariant ? 'text-[#8BA5C2]' : 'text-[#6B7A99] dark:text-[#8BA5C2]';
-  const labelText = isDarkVariant ? 'text-white' : 'text-[#0B1F3A] dark:text-[#E2EBF6]';
-  const trackBase = isDarkVariant ? 'bg-white/10' : 'bg-[#EEF2F6] dark:bg-[#1C3254]';
+  const mutedText = isDarkVariant ? 'text-[#98B0A6]' : 'text-[#6B7A74] dark:text-[#98B0A6]';
+  const labelText = isDarkVariant ? 'text-white' : 'text-[#1F2D2A] dark:text-[#E6EFE9]';
+  const trackBase = isDarkVariant ? 'bg-white/10' : 'bg-[#EDF1EA] dark:bg-[#27403A]';
   const idleNode = isDarkVariant
-    ? 'bg-white/5 border-white/20 text-[#8BA5C2]'
-    : 'bg-white dark:bg-[#0F2240] border-[#DDE4ED] dark:border-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]';
+    ? 'bg-white/5 border-white/20 text-[#98B0A6]'
+    : 'bg-white dark:bg-[#15231F] border-[#E1E6DF] dark:border-[#27403A] text-[#6B7A74] dark:text-[#98B0A6]';
 
   return (
     <div className="flex items-start">

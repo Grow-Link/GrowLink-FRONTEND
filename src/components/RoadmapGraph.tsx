@@ -42,7 +42,7 @@ const PALETTES = {
     tree1: '#1E8F6A', tree2: '#2BB67D', tree3: '#12766F', trunk: '#5B4A3A',
     river: '#1F7FB0', riverLight: '#3FA3D0', road: '#D6D1B6', roadEdge: '#8F8A6E', dash: '#F4F1E0',
     wall: '#C9A468', roof: '#B84A3C', door: '#5E3D29', stone: '#8FA2BC', stoneDark: '#647A98',
-    cloud: 'rgba(207,227,245,0.14)',
+    cloud: 'rgba(214, 235, 226,0.14)',
   },
 };
 
@@ -312,7 +312,7 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
         {relationArcs.map((a) => (
           <g key={a.key}>
             <path d={a.d} fill="none" stroke="#FFFFFF" strokeWidth={7} strokeLinecap="round" opacity={0.85} />
-            <path d={a.d} fill="none" stroke={a.kind === 'prereq' ? '#1E73E8' : '#12C2A8'} strokeWidth={4} strokeDasharray="9 8" strokeLinecap="round" />
+            <path d={a.d} fill="none" stroke={a.kind === 'prereq' ? '#0E8A7D' : '#12C2A8'} strokeWidth={4} strokeDasharray="9 8" strokeLinecap="round" />
           </g>
         ))}
 
@@ -360,8 +360,8 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
           : isCurrent
           ? 'gl-gradient text-white ring-4 ring-white gl-glow-teal'
           : isLocked
-          ? 'bg-[#B6C2D4] dark:bg-[#4A5F7C] text-white ring-4 ring-white/70 dark:ring-white/20'
-          : 'bg-white text-[#1E73E8] ring-4 ring-[#1E73E8]';
+          ? 'bg-[#BCC9C2] dark:bg-[#4A5F7C] text-white ring-4 ring-white/70 dark:ring-white/20'
+          : 'bg-white text-[#0E8A7D] ring-4 ring-[#0E8A7D]';
 
         const prereqTitles = node.requiere.map((id) => byId.get(id)?.titulo).filter(Boolean) as string[];
         const unlockTitles = node.desbloquea.map((id) => byId.get(id)?.titulo).filter(Boolean) as string[];
@@ -377,9 +377,9 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
             {isCurrent && (
               <>
                 <span className="absolute inset-0 rounded-full gl-gradient opacity-40 animate-ping" />
-                <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0B1F3A] text-white text-[10px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg">
+                <span className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#1F2D2A] text-white text-[10px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg">
                   ESTÁS AQUÍ
-                  <span className="absolute left-1/2 -bottom-1 -translate-x-1/2 w-2 h-2 bg-[#0B1F3A] rotate-45" />
+                  <span className="absolute left-1/2 -bottom-1 -translate-x-1/2 w-2 h-2 bg-[#1F2D2A] rotate-45" />
                 </span>
               </>
             )}
@@ -392,8 +392,8 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
               aria-label={`${node.titulo} — ${ESTADO_LABEL[node.estado]}`}
               aria-pressed={isSelected}
               className={`relative rounded-full flex items-center justify-center font-display font-bold text-xl shadow-xl transition-transform cursor-pointer hover:scale-110 ${nodeClasses} ${
-                isSelected ? 'outline outline-4 outline-offset-4 outline-[#0B1F3A] dark:outline-[#E2EBF6]' :
-                isPrereq ? 'outline outline-4 outline-offset-4 outline-[#1E73E8]' : isUnlock ? 'outline outline-4 outline-offset-4 outline-[#12C2A8]' : ''
+                isSelected ? 'outline outline-4 outline-offset-4 outline-[#1F2D2A] dark:outline-[#E6EFE9]' :
+                isPrereq ? 'outline outline-4 outline-offset-4 outline-[#0E8A7D]' : isUnlock ? 'outline outline-4 outline-offset-4 outline-[#12C2A8]' : ''
               }`}
               style={{ width: size, height: size }}
             >
@@ -420,9 +420,9 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
                 ...(isCurrent ? { marginLeft: side === 'right' ? 8 : undefined, marginRight: side === 'left' ? 8 : undefined } : {}),
               }}
             >
-              <div className="rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 border shadow-md backdrop-blur-sm bg-white/90 dark:bg-[#0B1F3A]/85 border-white dark:border-white/10">
-                <p className="font-display font-bold leading-snug text-[11px] sm:text-sm text-[#0B1F3A] dark:text-[#E2EBF6] line-clamp-2">{node.titulo}</p>
-                <p className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#6B7A99] dark:text-[#8BA5C2] mt-0.5 truncate">{nivelLabel(node.nivel)}</p>
+              <div className="rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 border shadow-md backdrop-blur-sm bg-white/90 dark:bg-[#1F2D2A]/85 border-white dark:border-white/10">
+                <p className="font-display font-bold leading-snug text-[11px] sm:text-sm text-[#1F2D2A] dark:text-[#E6EFE9] line-clamp-2">{node.titulo}</p>
+                <p className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#6B7A74] dark:text-[#98B0A6] mt-0.5 truncate">{nivelLabel(node.nivel)}</p>
                 {isStale && <p className="text-[9px] sm:text-[10px] font-bold text-[#B45309] dark:text-[#FBBF24] mt-0.5">No disponible</p>}
               </div>
             </div>
@@ -435,20 +435,20 @@ export default function RoadmapGraph({ graph, selectedId, onSelect, compact = fa
                   side === 'left' ? 'left-[-10px]' : 'right-[-10px]'
                 }`}
               >
-                <div className="rounded-xl bg-[#0B1F3A] border border-white/10 px-3.5 py-3 shadow-2xl">
+                <div className="rounded-xl bg-[#1F2D2A] border border-white/10 px-3.5 py-3 shadow-2xl">
                   <p className="text-xs font-bold text-white leading-snug">{node.titulo}</p>
-                  <p className="text-[11px] text-[#8BA5C2] leading-snug mt-1">
+                  <p className="text-[11px] text-[#98B0A6] leading-snug mt-1">
                     {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)} · Etapa {node.etapa + 1}
                   </p>
                   <p className="text-[10px] font-mono text-[#4CE07E] mt-1.5">{ESTADO_LABEL[node.estado]}</p>
                   {prereqTitles.length > 0 && (
-                    <p className="text-[10px] text-[#8BA5C2] mt-2 leading-snug">
-                      <span className="font-mono font-bold text-[#7CB6FF]">REQUIERE </span>
+                    <p className="text-[10px] text-[#98B0A6] mt-2 leading-snug">
+                      <span className="font-mono font-bold text-[#7EDCCB]">REQUIERE </span>
                       {prereqTitles.join(', ')}
                     </p>
                   )}
                   {unlockTitles.length > 0 && (
-                    <p className="text-[10px] text-[#8BA5C2] mt-1 leading-snug">
+                    <p className="text-[10px] text-[#98B0A6] mt-1 leading-snug">
                       <span className="font-mono font-bold text-[#2DD4BF]">DESBLOQUEA </span>
                       {unlockTitles.join(', ')}
                     </p>

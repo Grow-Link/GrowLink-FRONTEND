@@ -1,19 +1,16 @@
-// Cliente del backend real cursos-service. Reemplaza los datos inventados que
-// usaba antes PublishCoursePage (categorías de ejemplo, habilidades en texto libre
-// y la sugerencia de prerequisitos simulada localmente).
+// Cliente del backend real cursos-service: catálogo, detalle, publicar/editar, áreas disponibles y exámenes.
 //
-// cursos-service ya exige el JWT de usuarios-service en estas rutas, así que
-// las llamadas van autenticadas por el proxy de Vite (/api-cursos, ver
-// vite.config.ts y backendSession.ts) en vez de un fetch directo. Los
-// endpoints y la forma de la respuesta de /sugerir-prerequisitos están
-// tomados de la especificación que compartiste (Prompt 1); si el contrato
-// real difiere, ajusta solo este archivo — la página no necesita cambiar.
+// cursos-service exige el JWT de usuarios-service en estas rutas, así que las llamadas van autenticadas por
+// el proxy de Vite (/api-cursos, ver vite.config.ts y backendSession.ts). Si el contrato real difiere, se
+// ajusta solo este archivo — las páginas no necesitan cambiar.
 
 import { authorizedFetch, readJson, CURSOS_API } from './backendSession';
 import type { Course, Level } from '../types';
 
 const SERVICIO = 'cursos-service';
 
+// Estas 10 categorías son el enum cerrado de los tres backends (usuarios, cursos y trivia). Cuáles de ellas
+// TIENEN cursos hoy no sale de aquí sino de /api/cursos/resumen (ver listarAreas).
 export const CATEGORIAS_CURSOS = [
   'Ingeniería de Sistemas',
   'Ingeniería Civil',
@@ -49,8 +46,8 @@ export function categoriaDesdeEnum(valor: string): string {
   return entry ? entry[0] : valor;
 }
 
-const NIVEL_A_BACKEND: Record<Level, string> = { principiante: 'PRINCIPIANTE', intermedio: 'INTERMEDIO', avanzado: 'AVANZADO' };
-const NIVEL_DESDE_BACKEND: Record<string, Level> = { PRINCIPIANTE: 'principiante', INTERMEDIO: 'intermedio', AVANZADO: 'avanzado' };
+export const NIVEL_A_BACKEND: Record<Level, string> = { principiante: 'PRINCIPIANTE', intermedio: 'INTERMEDIO', avanzado: 'AVANZADO' };
+export const NIVEL_DESDE_BACKEND: Record<string, Level> = { PRINCIPIANTE: 'principiante', INTERMEDIO: 'intermedio', AVANZADO: 'avanzado' };
 
 interface HabilidadBackend {
   id: number;
@@ -59,12 +56,10 @@ interface HabilidadBackend {
 }
 
 /**
- * Mapea un CursoResponse de cursos-service al tipo Course del frontend. El
- * backend no manda nombre del publicador ni fecha de creación — se usa un
- * placeholder legible y "ahora" respectivamente, ninguno de los dos se usa
- * para lógica, solo se muestran.
+ * Mapea un CursoResponse de cursos-service al tipo Course del frontend. El backend no manda nombre del
+ * publicador ni fecha de creación — se usa un texto legible y "ahora", ninguno se usa para lógica.
  */
-function parseCurso(data: any): Course {
+export function parseCurso(data: any): Course {
   const habilidades: HabilidadBackend[] = Array.isArray(data?.habilidades) ? data.habilidades : [];
   const prerequisitoIds: unknown[] = Array.isArray(data?.prerequisitoIds) ? data.prerequisitoIds : [];
   return {
@@ -80,6 +75,9 @@ function parseCurso(data: any): Course {
     publisherName: `Publicador #${data?.publicadorUsuarioId ?? '?'}`,
     status: data?.activo ? 'active' : 'inactive',
     createdAt: new Date().toISOString(),
+    durationHours: typeof data?.duracionHoras === 'number' ? data.duracionHoras : null,
+    syllabus: Array.isArray(data?.temario) ? data.temario.map(String) : [],
+    examQuestions: Number(data?.totalPreguntasExamen ?? 0),
   };
 }
 
@@ -94,7 +92,7 @@ export async function listarCatalogo(categoria?: string, nivel?: Level): Promise
   return Array.isArray(data) ? data.map(parseCurso) : [];
 }
 
-/** GET /api/cursos?publicadorUsuarioId=X — cursos de un publicador específico. */
+/** GET /api/cursos?publicadorUsuarioId=X — cursos de un publicador específico (incluye los dados de baja). */
 export async function listarPorPublicador(publicadorUsuarioId: number): Promise<Course[]> {
   const res = await authorizedFetch(
     () => ({ url: `${CURSOS_API}/api/cursos?publicadorUsuarioId=${publicadorUsuarioId}` }),
@@ -111,6 +109,134 @@ export async function obtenerCurso(id: string | number): Promise<Course | null> 
   return parseCurso(await readJson<unknown>(res, SERVICIO));
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Áreas disponibles (lo que se muestra antes de pedir la meta)
+// ---------------------------------------------------------------------------------------------------------
+
+export interface AreaResumen {
+  /** Enum del backend (INGENIERIA_SISTEMAS). */
+  area: string;
+  /** Nombre para mostrar (Ingeniería de Sistemas). */
+  etiqueta: string;
+  cursos: number;
+  horasTotales: number;
+  principiante: number;
+  intermedio: number;
+  avanzado: number;
+  habilidades: string[];
+  ejemplos: string[];
+}
+
+/** GET /api/cursos/resumen — las áreas que tienen cursos activos AHORA, con sus números reales. */
+export async function listarAreas(): Promise<AreaResumen[]> {
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos/resumen` }), SERVICIO);
+  const data = await readJson<any[]>(res, SERVICIO);
+  return (Array.isArray(data) ? data : []).map((a) => ({
+    area: String(a.area),
+    etiqueta: String(a.etiqueta ?? categoriaDesdeEnum(String(a.area))),
+    cursos: Number(a.cursos ?? 0),
+    horasTotales: Number(a.horasTotales ?? 0),
+    principiante: Number(a.principiante ?? 0),
+    intermedio: Number(a.intermedio ?? 0),
+    avanzado: Number(a.avanzado ?? 0),
+    habilidades: Array.isArray(a.habilidades) ? a.habilidades.map(String) : [],
+    ejemplos: Array.isArray(a.ejemplos) ? a.ejemplos.map(String) : [],
+  }));
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Exámenes: la única forma de completar un curso
+// ---------------------------------------------------------------------------------------------------------
+
+export interface PreguntaExamen {
+  id: number;
+  enunciado: string;
+  opciones: string[];
+}
+
+export interface Examen {
+  cursoId: number;
+  titulo: string;
+  minimoAprobacion: number;
+  yaCompletado: boolean;
+  preguntas: PreguntaExamen[];
+}
+
+export interface ResultadoExamen {
+  aprobado: boolean;
+  aciertos: number;
+  total: number;
+  porcentaje: number;
+  minimoAprobacion: number;
+  cursoCompletado: boolean;
+}
+
+/** GET /api/cursos/{id}/examen — las preguntas y opciones (el servidor nunca manda cuál es la correcta). */
+export async function obtenerExamen(cursoId: string | number): Promise<Examen> {
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos/${cursoId}/examen` }), SERVICIO);
+  const data = await readJson<any>(res, SERVICIO);
+  return {
+    cursoId: Number(data.cursoId),
+    titulo: String(data.titulo ?? ''),
+    minimoAprobacion: Number(data.minimoAprobacion ?? 70),
+    yaCompletado: Boolean(data.yaCompletado),
+    preguntas: (Array.isArray(data.preguntas) ? data.preguntas : []).map((p: any) => ({
+      id: Number(p.id),
+      enunciado: String(p.enunciado),
+      opciones: Array.isArray(p.opciones) ? p.opciones.map(String) : [],
+    })),
+  };
+}
+
+/** POST /api/cursos/{id}/examen — manda las respuestas (índice elegido por pregunta, -1 si la dejó en blanco). */
+export async function presentarExamen(cursoId: string | number, respuestas: number[]): Promise<ResultadoExamen> {
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos/${cursoId}/examen`,
+      init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ respuestas }) },
+    }),
+    SERVICIO
+  );
+  return readJson<ResultadoExamen>(res, SERVICIO);
+}
+
+export interface CursoCompletado {
+  cursoId: number;
+  titulo: string;
+  categoria: string;
+  nivel: Level;
+  habilidades: string[];
+  fechaCompletado: string;
+  disponible: boolean;
+}
+
+/** GET /api/cursos/completados — historial del usuario con sesión (incluye cursos ya dados de baja). */
+export async function listarCompletados(usuarioId: number): Promise<CursoCompletado[]> {
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos/completados?usuarioId=${usuarioId}` }), SERVICIO);
+  const data = await readJson<any[]>(res, SERVICIO);
+  return (Array.isArray(data) ? data : []).map((c) => ({
+    cursoId: Number(c.cursoId),
+    titulo: String(c.titulo),
+    categoria: categoriaDesdeEnum(String(c.categoria)),
+    nivel: NIVEL_DESDE_BACKEND[c.nivel] ?? 'principiante',
+    habilidades: Array.isArray(c.habilidades) ? c.habilidades.map((h: any) => String(h.nombre)) : [],
+    fechaCompletado: String(c.fechaCompletado),
+    disponible: Boolean(c.disponible),
+  }));
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Publicar y editar
+// ---------------------------------------------------------------------------------------------------------
+
+export interface PreguntaExamenInput {
+  enunciado: string;
+  /** Siempre 4 opciones. */
+  opciones: string[];
+  /** Índice (0 a 3) de la opción correcta. */
+  respuestaCorrecta: number;
+}
+
 export interface CrearCursoInput {
   titulo: string;
   descripcion: string;
@@ -122,26 +248,29 @@ export interface CrearCursoInput {
   linkContenido: string;
   publicadorUsuarioId: number;
   prerequisitoIds: number[];
+  duracionHoras: number;
+  temario: string[];
+  examen: PreguntaExamenInput[];
 }
 
-/**
- * POST /api/cursos — crea el curso. CrearCursoRequest pide habilidadIds (los
- * ids reales del catálogo de habilidades), pero getHabilidades() solo expone
- * nombres (lo usa la pantalla para mostrar los chips) — así que acá se vuelve
- * a pedir /api/habilidades para esa categoría y se resuelven los ids por
- * nombre, sin tocar getHabilidades ni su contrato.
- */
-export async function crearCurso(input: CrearCursoInput): Promise<Course> {
-  const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
-
-  const habilidadesRes = await authorizedFetch(
+async function resolverHabilidadIds(categoriaEnum: string, nombres: string[]): Promise<number[]> {
+  const res = await authorizedFetch(
     () => ({ url: `${CURSOS_API}/api/habilidades?categoria=${encodeURIComponent(categoriaEnum)}` }),
     SERVICIO
   );
-  const habilidadesData = await readJson<unknown>(habilidadesRes, SERVICIO);
-  const habilidadesRaw: HabilidadBackend[] = Array.isArray(habilidadesData) ? (habilidadesData as HabilidadBackend[]) : [];
-  const nombresSeleccionados = new Set(input.habilidades);
-  const habilidadIds = habilidadesRaw.filter((h) => nombresSeleccionados.has(h.nombre)).map((h) => h.id);
+  const data = await readJson<unknown>(res, SERVICIO);
+  const raw: HabilidadBackend[] = Array.isArray(data) ? (data as HabilidadBackend[]) : [];
+  const seleccionadas = new Set(nombres);
+  return raw.filter((h) => seleccionadas.has(h.nombre)).map((h) => h.id);
+}
+
+/**
+ * POST /api/cursos — crea el curso. CrearCursoRequest pide habilidadIds (los ids reales del catálogo de
+ * habilidades), pero la pantalla maneja nombres, así que acá se resuelven los ids por nombre.
+ */
+export async function crearCurso(input: CrearCursoInput): Promise<Course> {
+  const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
+  const habilidadIds = await resolverHabilidadIds(categoriaEnum, input.habilidades);
 
   const body = {
     titulo: input.titulo,
@@ -152,6 +281,9 @@ export async function crearCurso(input: CrearCursoInput): Promise<Course> {
     linkContenido: input.linkContenido,
     publicadorUsuarioId: input.publicadorUsuarioId,
     prerequisitoIds: input.prerequisitoIds,
+    duracionHoras: input.duracionHoras,
+    temario: input.temario,
+    examen: input.examen,
   };
   const res = await authorizedFetch(
     () => ({
@@ -161,6 +293,62 @@ export async function crearCurso(input: CrearCursoInput): Promise<Course> {
     SERVICIO
   );
   return parseCurso(await readJson<unknown>(res, SERVICIO));
+}
+
+export interface EditarCursoInput {
+  titulo: string;
+  descripcion: string;
+  /** La categoría no cambia al editar, pero hace falta para resolver los ids de habilidades. */
+  categoria: string;
+  nivel: Level;
+  habilidades: string[];
+  linkContenido: string;
+  duracionHoras: number;
+  temario: string[];
+  /** Si no se manda, el examen que ya tiene el curso se conserva tal cual. */
+  examen?: PreguntaExamenInput[];
+}
+
+/** PUT /api/cursos/{id} — solo el dueño del curso o un ADMIN. */
+export async function editarCurso(id: string | number, input: EditarCursoInput): Promise<Course> {
+  const categoriaEnum = CATEGORIA_ENUM[input.categoria as CategoriaCurso] ?? input.categoria;
+  const habilidadIds = await resolverHabilidadIds(categoriaEnum, input.habilidades);
+  const body = {
+    titulo: input.titulo,
+    descripcion: input.descripcion,
+    nivel: NIVEL_A_BACKEND[input.nivel],
+    habilidadIds,
+    linkContenido: input.linkContenido,
+    duracionHoras: input.duracionHoras,
+    temario: input.temario,
+    ...(input.examen ? { examen: input.examen } : {}),
+  };
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos/${id}`,
+      init: { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    }),
+    SERVICIO
+  );
+  return parseCurso(await readJson<unknown>(res, SERVICIO));
+}
+
+/** PUT /api/cursos/{id}/prerequisitos — reemplaza los prerrequisitos del curso (dueño o ADMIN). */
+export async function actualizarPrerequisitos(id: string | number, prerequisitoIds: number[]): Promise<void> {
+  const res = await authorizedFetch(
+    () => ({
+      url: `${CURSOS_API}/api/cursos/${id}/prerequisitos`,
+      init: { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prerequisitoIds }) },
+    }),
+    SERVICIO
+  );
+  await readJson<unknown>(res, SERVICIO);
+}
+
+/** PATCH /api/cursos/{id}/baja — baja lógica: sale del catálogo y deja de recomendarse en los roadmaps nuevos. */
+export async function darDeBajaCurso(id: string | number): Promise<void> {
+  const res = await authorizedFetch(() => ({ url: `${CURSOS_API}/api/cursos/${id}/baja`, init: { method: 'PATCH' } }), SERVICIO);
+  if (!res.ok) await readJson<unknown>(res, SERVICIO);
 }
 
 export interface PrerequisitoSugerido {

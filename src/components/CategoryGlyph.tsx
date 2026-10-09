@@ -2,11 +2,11 @@ import type { ReactElement } from 'react';
 
 const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElement }> = {
   'Ingeniería de Sistemas': {
-    from: '#1E73E8', to: '#12C2A8',
+    from: '#0E8A7D', to: '#12C2A8',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />,
   },
   'Ingeniería Civil': {
-    from: '#0B1F3A', to: '#1E73E8',
+    from: '#1F2D2A', to: '#0E8A7D',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 21h18M5 21V7a2 2 0 012-2h10a2 2 0 012 2v14M9 9h.01M9 12h.01M9 15h.01M15 9h.01M15 12h.01M15 15h.01" />,
   },
   'Ingeniería Industrial': {
@@ -21,7 +21,7 @@ const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElem
     ),
   },
   'Ingeniería Electrónica': {
-    from: '#1E73E8', to: '#0B1F3A',
+    from: '#0E8A7D', to: '#1F2D2A',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 7h10v10H7V7zM9 9h6v6H9V9z" />,
   },
   'Ingeniería Mecánica': {
@@ -40,11 +40,11 @@ const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElem
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 21a9 9 0 100-18 9 9 0 000 18zM3.6 9h16.8M3.6 15h16.8M12 3a14.98 14.98 0 013 9 14.98 14.98 0 01-3 9 14.98 14.98 0 01-3-9 14.98 14.98 0 013-9z" />,
   },
   Matemáticas: {
-    from: '#1E73E8', to: '#12C2A8',
+    from: '#0E8A7D', to: '#12C2A8',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 17V9m6 8V5M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2zM9 21v-4" />,
   },
   'Administración de Empresas': {
-    from: '#1E73E8', to: '#0B1F3A',
+    from: '#0E8A7D', to: '#1F2D2A',
     icon: (
       <path
         strokeLinecap="round"
@@ -59,12 +59,12 @@ const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElem
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />,
   },
   Derecho: {
-    from: '#0B1F3A', to: '#1E73E8',
+    from: '#1F2D2A', to: '#0E8A7D',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />,
   },
 };
 
-const DEFAULT_STYLE = { from: '#1E73E8', to: '#12C2A8' };
+const DEFAULT_STYLE = { from: '#0E8A7D', to: '#12C2A8' };
 
 interface CategoryGlyphProps {
   category: string;

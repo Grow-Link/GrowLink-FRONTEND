@@ -6,11 +6,11 @@ const CADA_MS = 5000;
 
 function Medidor({ etiqueta, valor, detalle }: { etiqueta: string; valor: string; detalle: string }) {
   return (
-    <div className="rounded-2xl border p-5 bg-white dark:bg-[#0F2240] border-[#DDE4ED] dark:border-[#1C3254] flex flex-col justify-between min-h-[110px]">
-      <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-[#6B7A99] dark:text-[#8BA5C2]">{etiqueta}</p>
+    <div className="rounded-2xl border p-5 bg-white dark:bg-[#15231F] border-[#E1E6DF] dark:border-[#27403A] flex flex-col justify-between min-h-[110px]">
+      <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-[#6B7A74] dark:text-[#98B0A6]">{etiqueta}</p>
       <div>
-        <p className="text-3xl font-display font-bold font-mono tabular-nums text-[#0B1F3A] dark:text-[#E2EBF6]">{valor}</p>
-        <p className="text-xs mt-1 text-[#6B7A99] dark:text-[#8BA5C2]">{detalle}</p>
+        <p className="text-3xl font-display font-bold font-mono tabular-nums text-[#1F2D2A] dark:text-[#E6EFE9]">{valor}</p>
+        <p className="text-xs mt-1 text-[#6B7A74] dark:text-[#98B0A6]">{detalle}</p>
       </div>
     </div>
   );
@@ -47,11 +47,11 @@ export default function ConcurrenciaEnVivo() {
     <section className="mb-8" aria-label="Concurrencia en tiempo real">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
         <div>
-          <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg">Concurrencia en tiempo real</h2>
-          <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm">Datos reales de trivia-service, se actualizan cada 5 segundos</p>
+          <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg">Concurrencia en tiempo real</h2>
+          <p className="text-[#6B7A74] dark:text-[#98B0A6] text-sm">Datos reales de trivia-service, se actualizan cada 5 segundos</p>
         </div>
         {datos && (
-          <span className="text-xs font-mono text-[#6B7A99] dark:text-[#8BA5C2]">
+          <span className="text-xs font-mono text-[#6B7A74] dark:text-[#98B0A6]">
             {new Date(datos.generadoEn).toLocaleTimeString('es-CO')}
           </span>
         )}
@@ -63,7 +63,7 @@ export default function ConcurrenciaEnVivo() {
         </p>
       )}
 
-      {!datos && !error && <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Cargando métricas...</p>}
+      {!datos && !error && <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Cargando métricas...</p>}
 
       {datos && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

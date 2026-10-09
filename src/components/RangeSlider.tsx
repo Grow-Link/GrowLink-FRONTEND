@@ -24,11 +24,11 @@ export default function RangeSlider({ min, max, step = 1, value, onChange, forma
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <span className="font-mono text-xs font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">{fmt(lo)}</span>
-        <span className="font-mono text-xs font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">{fmt(hi)}</span>
+        <span className="font-mono text-xs font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">{fmt(lo)}</span>
+        <span className="font-mono text-xs font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">{fmt(hi)}</span>
       </div>
       <div className="relative h-5 flex items-center">
-        <div className="absolute inset-x-0 h-1.5 rounded-full bg-[#EEF2F6] dark:bg-[#1C3254]" />
+        <div className="absolute inset-x-0 h-1.5 rounded-full bg-[#EDF1EA] dark:bg-[#27403A]" />
         <div
           className="absolute h-1.5 rounded-full gl-gradient"
           style={{ left: `${pctLo}%`, right: `${100 - pctHi}%` }}
@@ -65,7 +65,7 @@ export default function RangeSlider({ min, max, step = 1, value, onChange, forma
                 className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all cursor-pointer ${
                   isActive
                     ? 'border-[#12C2A8] bg-[#12C2A8]/10 text-[#0F766E] dark:text-[#2DD4BF]'
-                    : 'border-[#DDE4ED] dark:border-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2] hover:border-[#1E73E8]/40'
+                    : 'border-[#E1E6DF] dark:border-[#27403A] text-[#6B7A74] dark:text-[#98B0A6] hover:border-[#0E8A7D]/40'
                 }`}
               >
                 {p.label}

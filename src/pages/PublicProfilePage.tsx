@@ -1,181 +1,211 @@
+import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import ProgressBar from '../components/ProgressBar';
+import Button from '../components/Button';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
+import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
+import { listarCompletados, listarPorPublicador, type CursoCompletado } from '../services/cursosServiceApi';
+import { fetchRoadmap } from '../services/roadmapApi';
+import { listarMisPartidas, type MiPartida } from '../services/triviaServiceApi';
+import type { Course } from '../types';
+import type { RoadmapView } from '../utils/roadmapModel';
 
+const card = 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl p-5 sm:p-6';
+const chip = 'px-3 py-1.5 rounded-lg text-sm font-medium bg-[#F6F7F2] dark:bg-[#1A2C27] text-[#1F2D2A] dark:text-[#E6EFE9] border border-[#E1E6DF] dark:border-[#27403A]';
+
+// El perfil de la persona con sesión, con sus datos reales. Quien aprende ve su meta y su avance; quien publica
+// ve sus cursos; y todos ven sus partidas de trivia.
 export default function PublicProfilePage() {
   const { currentUser, navigate } = useNavigation();
-  const { profiles, roadmaps, completions, courses, triviaQuestions } = useAppData();
+  const rol = currentUser?.role;
+
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [roadmap, setRoadmap] = useState<RoadmapView | null>(null);
+  const [completados, setCompletados] = useState<CursoCompletado[]>([]);
+  const [cursos, setCursos] = useState<Course[]>([]);
+  const [partidas, setPartidas] = useState<MiPartida[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let ignorar = false;
+    const id = Number(currentUser.id);
+    const sinFallo = <T,>(p: Promise<T>, vacio: T) => p.catch(() => vacio);
+    Promise.all([
+      rol === 'user' ? sinFallo(getPerfil(), null) : Promise.resolve(null),
+      rol === 'user' ? sinFallo(fetchRoadmap(), null) : Promise.resolve(null),
+      rol === 'user' ? sinFallo(listarCompletados(id), [] as CursoCompletado[]) : Promise.resolve([] as CursoCompletado[]),
+      rol === 'publisher' ? sinFallo(listarPorPublicador(id), [] as Course[]) : Promise.resolve([] as Course[]),
+      rol !== 'admin' ? sinFallo(listarMisPartidas(5), [] as MiPartida[]) : Promise.resolve([] as MiPartida[]),
+    ]).then(([p, r, c, k, m]) => {
+      if (ignorar) return;
+      setPerfil(p);
+      setRoadmap(r);
+      setCompletados(c);
+      setCursos(k);
+      setPartidas(m);
+      setCargando(false);
+    });
+    return () => {
+      ignorar = true;
+    };
+  }, [currentUser, rol]);
 
   if (!currentUser) return null;
-  const initials = currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
+  const iniciales = currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
+  const habilidades = [...new Set(completados.flatMap((c) => c.habilidades))];
+  const activos = cursos.filter((c) => c.status === 'active');
+  const victorias = partidas.filter((p) => p.miPosicion === 1 && p.partida.ganadorUsuarioId === Number(currentUser.id)).length;
 
-  const profile = profiles[currentUser.id];
-  const roadmap = roadmaps[currentUser.id];
-  const myCompletions = completions.filter((c) => c.userId === currentUser.id);
-  const myCourses = courses.filter((c) => c.publisherId === currentUser.id);
-  const myQuestions = triviaQuestions.filter((q) => q.publisherId === currentUser.id);
-
-  const roadmapProgress = roadmap ? Math.round((roadmap.nodes.filter((n) => n.status === 'completed').length / Math.max(1, roadmap.nodes.length)) * 100) : 0;
-  const unlockedSkills = [...new Set(myCompletions.flatMap((c) => c.skillsUnlocked))];
+  const estadisticas =
+    rol === 'user'
+      ? [
+          { v: String(completados.length), l: 'Cursos aprobados' },
+          { v: `${roadmap?.progreso.porcentaje ?? 0}%`, l: 'Avance del roadmap' },
+          { v: String(perfil?.triviasGanadas ?? 0), l: 'Trivias ganadas' },
+        ]
+      : rol === 'publisher'
+        ? [
+            { v: String(activos.length), l: 'Cursos activos' },
+            { v: String(cursos.length), l: 'Cursos publicados' },
+            { v: String(victorias), l: 'Trivias ganadas (recientes)' },
+          ]
+        : [];
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+    <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
       <Navbar />
 
-      <div className="bg-[#0B1F3A] relative overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-0 right-0 w-80 h-80 gl-gradient opacity-10 rounded-full blur-3xl translate-x-1/4 -translate-y-1/3" />
-        </div>
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12 relative z-10">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-6">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl gl-gradient flex items-center justify-center text-white text-2xl sm:text-3xl font-display font-bold shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-3 mb-1">
-                <h1 className="text-2xl sm:text-3xl font-display font-bold text-white">{currentUser.name}</h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/10 text-white border border-white/20">Tu perfil</span>
+      <div className="bg-gradient-to-br from-[#1F2D2A] to-[#0B6F65] relative overflow-hidden">
+        <div aria-hidden="true" className="absolute -right-16 -top-20 w-80 h-80 rounded-full bg-[#12C2A8]/20 blur-3xl" />
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10 flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl gl-gradient flex items-center justify-center text-white text-2xl sm:text-3xl font-display font-bold shrink-0">{iniciales}</div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-display font-bold text-white">{currentUser.name}</h1>
+            <p className="text-[#BCC9C2] mt-1">{currentUser.headline}</p>
+            {rol === 'admin' ? (
+              <p className="text-sm text-[#BCC9C2] mt-3">Cuenta de administración de la plataforma.</p>
+            ) : (
+              <div className="flex flex-wrap gap-x-8 gap-y-3 mt-4">
+                {estadisticas.map((e) => (
+                  <div key={e.l}>
+                    <p className="text-2xl font-display font-bold text-white">{cargando ? '…' : e.v}</p>
+                    <p className="text-xs text-[#BCC9C2]">{e.l}</p>
+                  </div>
+                ))}
               </div>
-              <p className="text-[#8BA5C2] mb-4">{currentUser.headline}{currentUser.org ? ` · ${currentUser.org}` : ''}</p>
-
-              {currentUser.role === 'user' ? (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                  <div className="text-center">
-                    <p className="text-2xl font-mono font-bold text-white">{myCompletions.length}</p>
-                    <p className="text-xs text-[#8BA5C2]">Cursos completados</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20 hidden sm:block" />
-                  <div className="text-center">
-                    <p className="text-2xl font-mono font-bold text-white">{roadmapProgress}%</p>
-                    <p className="text-xs text-[#8BA5C2]">Progreso de roadmap</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20 hidden sm:block" />
-                  <div className="text-center">
-                    <p className="text-2xl font-display font-bold text-white capitalize">{profile?.level ?? '—'}</p>
-                    <p className="text-xs text-[#8BA5C2]">Nivel</p>
-                  </div>
-                </div>
-              ) : currentUser.role === 'publisher' ? (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                  <div className="text-center">
-                    <p className="text-2xl font-display font-bold text-white">{myCourses.filter((c) => c.status === 'active').length}</p>
-                    <p className="text-xs text-[#8BA5C2]">Cursos activos</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20 hidden sm:block" />
-                  <div className="text-center">
-                    <p className="text-2xl font-display font-bold text-white">{myQuestions.length}</p>
-                    <p className="text-xs text-[#8BA5C2]">Preguntas de trivia</p>
-                  </div>
-                </div>
-              ) : (
-                <span className="text-sm text-[#8BA5C2]">Cuenta de administración de plataforma</span>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        <div className="flex flex-col lg:grid lg:grid-cols-[1fr_340px] gap-6 lg:gap-8">
-          <div className="space-y-6">
-            {currentUser.role === 'user' && (
-              <>
-                <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6">
-                  <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-4">Meta</h2>
-                  {profile ? (
-                    <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] leading-relaxed">{profile.goals}</p>
-                  ) : (
-                    <button onClick={() => navigate('onboarding')} className="text-sm text-[#1E73E8] font-semibold hover:underline cursor-pointer">
-                      Completar mi perfil
-                    </button>
-                  )}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
+        <div className="space-y-6">
+          {rol === 'user' && (
+            <>
+              <section className={card}>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg">Mi meta</h2>
+                  <button type="button" onClick={() => navigate('onboarding')} className="text-sm text-[#0E8A7D] dark:text-[#5FD3C2] font-semibold hover:underline cursor-pointer">Cambiar</button>
                 </div>
-
-                {profile && (
-                  <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6">
-                    <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-4">Intereses</h2>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.interests.map((i) => (
-                        <span key={i} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254]">
-                          {i}
-                        </span>
-                      ))}
+                {perfil?.metas ? (
+                  <>
+                    <p className="text-[#1F2D2A] dark:text-[#E6EFE9] leading-relaxed">«{perfil.metas}»</p>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {perfil.intereses.map((i) => <span key={i} className={chip}>{i}</span>)}
+                      {perfil.nivel && <span className="px-3 py-1.5 rounded-lg text-sm font-bold bg-[#12C2A8]/10 text-[#0B6F65] dark:text-[#5FD3C2] capitalize">Parto como {perfil.nivel}</span>}
                     </div>
-                  </div>
-                )}
-
-                <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6">
-                  <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-4">Habilidades desbloqueadas</h2>
-                  {unlockedSkills.length === 0 ? (
-                    <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Completa cursos para desbloquear habilidades.</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {unlockedSkills.map((s) => (
-                        <span key={s} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#F7F9FA] dark:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] border border-[#DDE4ED] dark:border-[#1C3254]">
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {currentUser.role === 'publisher' && (
-              <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-6">
-                <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-lg mb-4">Cursos publicados</h2>
-                {myCourses.length === 0 ? (
-                  <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Aún no publicas cursos.</p>
+                  </>
                 ) : (
-                  <div className="space-y-2.5">
-                    {myCourses.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => navigate('course-detail', { id: c.id })}
-                        className="w-full flex items-center justify-between py-2.5 border-b border-[#DDE4ED] dark:border-[#1C3254] last:border-0 text-left cursor-pointer group"
-                      >
-                        <p className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] group-hover:text-[#1E73E8] transition-colors">{c.title}</p>
-                        <span className={`text-xs font-semibold ${c.status === 'active' ? 'text-[#15803D] dark:text-[#4CE07E]' : 'text-[#DC2626] dark:text-[#F87171]'}`}>
-                          {c.status === 'active' ? 'Activo' : 'De baja'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  <Button variant="gradient" size="sm" onClick={() => navigate('onboarding')}>Armar mi roadmap</Button>
                 )}
-              </div>
-            )}
-          </div>
+              </section>
 
-          {currentUser.role === 'user' && (
-            <div className="space-y-4">
-              <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5">
-                <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Progreso de roadmap</p>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-[#0B1F3A] dark:text-[#E2EBF6]">Completado</span>
-                  <span className="font-mono font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">{roadmapProgress}%</span>
-                </div>
-                <ProgressBar value={roadmapProgress} size="md" variant="gradient" />
-              </div>
+              {roadmap && (
+                <section className={card}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg">Mi roadmap</h2>
+                    <button type="button" onClick={() => navigate('roadmap')} className="text-sm text-[#0E8A7D] dark:text-[#5FD3C2] font-semibold hover:underline cursor-pointer">Abrirlo</button>
+                  </div>
+                  <ProgressBar value={roadmap.progreso.porcentaje} size="md" variant="gradient" showLabel />
+                  <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-2">
+                    {roadmap.progreso.completados} de {roadmap.progreso.total} cursos aprobados · {roadmap.progreso.horasHechas} de {roadmap.progreso.horasTotales} horas
+                  </p>
+                </section>
+              )}
 
-              <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5">
-                <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Estadísticas</p>
-                <div className="space-y-3">
-                  {[
-                    { label: 'Cursos completados', value: String(myCompletions.length) },
-                    { label: 'Habilidades', value: String(unlockedSkills.length) },
-                  ].map((stat) => (
-                    <div key={stat.label} className="flex items-center justify-between">
-                      <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">{stat.label}</p>
-                      <p className="font-mono font-bold text-sm text-[#0B1F3A] dark:text-[#E2EBF6]">{stat.value}</p>
-                    </div>
+              <section className={card}>
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg mb-3">Habilidades desbloqueadas</h2>
+                {habilidades.length === 0 ? (
+                  <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Aprueba cursos para desbloquear habilidades.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">{habilidades.map((h) => <span key={h} className={chip}>{h}</span>)}</div>
+                )}
+              </section>
+            </>
+          )}
+
+          {rol === 'publisher' && (
+            <section className={card}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg">Mis cursos</h2>
+                <button type="button" onClick={() => navigate('my-courses')} className="text-sm text-[#0E8A7D] dark:text-[#5FD3C2] font-semibold hover:underline cursor-pointer">Gestionar</button>
+              </div>
+              {cursos.length === 0 ? (
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Aún no has publicado cursos.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {cursos.map((c) => (
+                    <li key={c.id}>
+                      <button type="button" onClick={() => navigate('course-detail', { id: c.id })} className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#E1E6DF] dark:border-[#27403A] px-4 py-2.5 text-left hover:border-[#12C2A8] cursor-pointer">
+                        <span className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{c.title}</span>
+                        <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6] shrink-0">{c.status === 'active' ? 'Activo' : 'Dado de baja'}</span>
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
+              )}
+            </section>
+          )}
+
+          {rol === 'admin' && (
+            <section className={card}>
+              <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-lg mb-2">Administración</h2>
+              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-4">Desde aquí supervisas la plataforma: métricas de uso y moderación del catálogo.</p>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="primary" onClick={() => navigate('admin-dashboard')}>Ver métricas</Button>
+                <Button variant="secondary" onClick={() => navigate('admin-courses')}>Moderar cursos</Button>
               </div>
-            </div>
+            </section>
           )}
         </div>
-      </div>
+
+        {rol !== 'admin' && (
+          <aside className="space-y-4">
+            <section className={card}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">Mis partidas</h2>
+                <button type="button" onClick={() => navigate('trivia')} className="text-xs text-[#0E8A7D] dark:text-[#5FD3C2] font-semibold hover:underline cursor-pointer">Jugar</button>
+              </div>
+              {partidas.length === 0 ? (
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Todavía no has jugado trivias.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {partidas.map((p) => (
+                    <li key={p.partida.codigo} className="flex items-center gap-3">
+                      <span className="text-lg shrink-0">{p.miPosicion === 1 ? '🏆' : p.miPosicion === 2 ? '🥈' : p.miPosicion === 3 ? '🥉' : '🎯'}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{p.partida.categoria}</p>
+                        <p className="text-[11px] text-[#6B7A74] dark:text-[#98B0A6]">Puesto {p.miPosicion} de {p.partida.totalJugadores} · {p.misPuntos} pts</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </aside>
+        )}
+      </main>
     </div>
   );
 }

@@ -21,6 +21,12 @@ export interface UserProfile {
 }
 
 export interface Course {
+  /** Horas estimadas del curso (null si el publicador no las indicó). */
+  durationHours?: number | null;
+  /** Temario: lista de temas que cubre el curso. */
+  syllabus?: string[];
+  /** Cuántas preguntas tiene el examen que hay que aprobar para completarlo (0 = aún sin examen). */
+  examQuestions?: number;
   id: string;
   title: string;
   description: string;

@@ -37,35 +37,35 @@ export default function SubscriptionPage() {
   const displayPrice = billing === 'annual' ? annualMonthlyPrice : monthlyPrice;
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+    <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
       <Navbar />
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8 sm:space-y-10">
 
         {/* Header */}
         <div>
           <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Mi cuenta</span>
-          <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-1">Plan y suscripción</h1>
-          <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">
-            Plan actual: <span className="font-semibold text-[#0B1F3A] dark:text-[#E2EBF6]">{currentPlan === 'premium' ? 'Suscripción Premium' : 'Plan Gratuito'}</span>
+          <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-1">Plan y suscripción</h1>
+          <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1">
+            Plan actual: <span className="font-semibold text-[#1F2D2A] dark:text-[#E6EFE9]">{currentPlan === 'premium' ? 'Suscripción Premium' : 'Plan Gratuito'}</span>
           </p>
         </div>
 
         {/* Billing toggle — solo afecta precio Premium */}
         <div className="flex items-center gap-3">
-          <span className={`text-sm font-semibold ${billing === 'monthly' ? 'text-[#0B1F3A] dark:text-[#E2EBF6]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>
+          <span className={`text-sm font-semibold ${billing === 'monthly' ? 'text-[#1F2D2A] dark:text-[#E6EFE9]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>
             Mensual
           </span>
           <button
             onClick={() => setBilling(b => b === 'monthly' ? 'annual' : 'monthly')}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-              billing === 'annual' ? 'bg-[#1E73E8]' : 'bg-[#DDE4ED] dark:bg-[#1C3254]'
+              billing === 'annual' ? 'bg-[#0E8A7D]' : 'bg-[#E1E6DF] dark:bg-[#27403A]'
             }`}
           >
             <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
               billing === 'annual' ? 'translate-x-6' : 'translate-x-1'
             }`} />
           </button>
-          <span className={`text-sm font-semibold ${billing === 'annual' ? 'text-[#0B1F3A] dark:text-[#E2EBF6]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>
+          <span className={`text-sm font-semibold ${billing === 'annual' ? 'text-[#1F2D2A] dark:text-[#E6EFE9]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>
             Anual
             <span className="ml-2 text-xs font-bold text-[#12C2A8] bg-[#CCFBF1] dark:bg-[#0D3830] px-1.5 py-0.5 rounded-full">
               Ahorra 20%
@@ -77,10 +77,10 @@ export default function SubscriptionPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl">
 
           {/* Gratuito */}
-          <div className={`bg-white dark:bg-[#0F2240] border-2 rounded-2xl p-6 sm:p-7 flex flex-col ${
+          <div className={`bg-white dark:bg-[#15231F] border-2 rounded-2xl p-6 sm:p-7 flex flex-col ${
             currentPlan === 'free'
               ? 'border-[#12C2A8]'
-              : 'border-[#DDE4ED] dark:border-[#1C3254]'
+              : 'border-[#E1E6DF] dark:border-[#27403A]'
           }`}>
             {currentPlan === 'free' && (
               <span className="self-start px-2 py-0.5 rounded-full text-xs font-bold bg-[#F0FDF4] dark:bg-[#0D2E1A] text-[#15803D] border border-[#BBF7D0] dark:border-[#166534] mb-4">
@@ -88,15 +88,15 @@ export default function SubscriptionPage() {
               </span>
             )}
             <div className="mb-6">
-              <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-xl mb-1">Plan Gratuito</p>
-              <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Acceso básico a la plataforma</p>
+              <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-xl mb-1">Plan Gratuito</p>
+              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Acceso básico a la plataforma</p>
             </div>
-            <p className="text-5xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2">Gratis</p>
-            <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mb-8">Sin tarjeta de crédito</p>
+            <p className="text-5xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2">Gratis</p>
+            <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mb-8">Sin tarjeta de crédito</p>
 
             <div className="mt-auto">
               {currentPlan === 'free' ? (
-                <div className="w-full py-2.5 rounded-xl text-sm font-semibold text-center bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">
+                <div className="w-full py-2.5 rounded-xl text-sm font-semibold text-center bg-[#F6F7F2] dark:bg-[#1A2C27] text-[#6B7A74] dark:text-[#98B0A6] border border-[#E1E6DF] dark:border-[#27403A]">
                   Plan actual
                 </div>
               ) : (
@@ -106,10 +106,10 @@ export default function SubscriptionPage() {
           </div>
 
           {/* Premium */}
-          <div className={`relative bg-[#0B1F3A] border-2 rounded-2xl p-6 sm:p-7 flex flex-col overflow-hidden ${
+          <div className={`relative bg-[#1F2D2A] border-2 rounded-2xl p-6 sm:p-7 flex flex-col overflow-hidden ${
             currentPlan === 'premium'
               ? 'border-[#12C2A8]'
-              : 'border-[#1E73E8]'
+              : 'border-[#0E8A7D]'
           }`}>
             {/* Brand gradient accent */}
             <div className="absolute top-0 right-0 w-40 h-40 rounded-full gl-gradient opacity-15 blur-3xl translate-x-1/4 -translate-y-1/4 pointer-events-none" />
@@ -122,13 +122,13 @@ export default function SubscriptionPage() {
 
             <div className="relative z-10 mb-6">
               <p className="font-display font-bold text-white text-xl mb-1">Suscripción Premium</p>
-              <p className="text-sm text-[#8BA5C2]">Para profesionales en crecimiento activo</p>
+              <p className="text-sm text-[#98B0A6]">Para profesionales en crecimiento activo</p>
             </div>
 
             <div className="relative z-10 mb-2">
               <p className="text-5xl font-display font-bold text-white font-mono">
                 ${displayPrice.toLocaleString('es-CO')}
-                <span className="text-base font-body font-normal text-[#8BA5C2] ml-1">COP/mes</span>
+                <span className="text-base font-body font-normal text-[#98B0A6] ml-1">COP/mes</span>
               </p>
             </div>
             {billing === 'annual' && (
@@ -137,7 +137,7 @@ export default function SubscriptionPage() {
               </p>
             )}
             {billing === 'monthly' && (
-              <p className="text-xs text-[#8BA5C2] mb-1 relative z-10">Facturado mes a mes</p>
+              <p className="text-xs text-[#98B0A6] mb-1 relative z-10">Facturado mes a mes</p>
             )}
 
             {/* 4 benefits */}
@@ -151,7 +151,7 @@ export default function SubscriptionPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white leading-snug">{benefit.title}</p>
-                    <p className="text-xs text-[#8BA5C2] mt-0.5 leading-relaxed">{benefit.desc}</p>
+                    <p className="text-xs text-[#98B0A6] mt-0.5 leading-relaxed">{benefit.desc}</p>
                   </div>
                 </li>
               ))}
@@ -159,7 +159,7 @@ export default function SubscriptionPage() {
 
             <div className="relative z-10 mt-auto">
               {currentPlan === 'premium' ? (
-                <div className="w-full py-2.5 rounded-xl text-sm font-semibold text-center bg-white/10 text-[#8BA5C2] border border-white/20">
+                <div className="w-full py-2.5 rounded-xl text-sm font-semibold text-center bg-white/10 text-[#98B0A6] border border-white/20">
                   Plan actual
                 </div>
               ) : (
@@ -172,25 +172,25 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Transaction history */}
-        <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl overflow-hidden max-w-3xl">
-          <div className="p-5 sm:p-6 border-b border-[#DDE4ED] dark:border-[#1C3254]">
-            <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] text-xl">Historial de pagos</h2>
+        <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden max-w-3xl">
+          <div className="p-5 sm:p-6 border-b border-[#E1E6DF] dark:border-[#27403A]">
+            <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] text-xl">Historial de pagos</h2>
           </div>
           <div className="overflow-x-auto">
           <table className="w-full min-w-[560px]">
             <thead>
-              <tr className="border-b border-[#EEF2F6] dark:border-[#1C3254]">
+              <tr className="border-b border-[#EDF1EA] dark:border-[#27403A]">
                 {['Fecha', 'Descripción', 'Monto (COP)', 'Estado'].map((h) => (
-                  <th key={h} className="text-left text-xs font-semibold text-[#6B7A99] dark:text-[#8BA5C2] uppercase tracking-wider px-6 py-3.5">{h}</th>
+                  <th key={h} className="text-left text-xs font-semibold text-[#6B7A74] dark:text-[#98B0A6] uppercase tracking-wider px-6 py-3.5">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F7F9FA] dark:divide-[#1C3254]">
+            <tbody className="divide-y divide-[#F6F7F2] dark:divide-[#27403A]">
               {TRANSACTIONS.map((tx, i) => (
-                <tr key={i} className="hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] transition-colors">
-                  <td className="px-6 py-4 text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono">{tx.date}</td>
-                  <td className="px-6 py-4 text-sm text-[#0B1F3A] dark:text-[#E2EBF6] font-medium">{tx.description}</td>
-                  <td className="px-6 py-4 text-sm font-mono font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">${tx.amount}</td>
+                <tr key={i} className="hover:bg-[#F6F7F2] dark:hover:bg-[#1A2C27] transition-colors">
+                  <td className="px-6 py-4 text-xs text-[#6B7A74] dark:text-[#98B0A6] font-mono">{tx.date}</td>
+                  <td className="px-6 py-4 text-sm text-[#1F2D2A] dark:text-[#E6EFE9] font-medium">{tx.description}</td>
+                  <td className="px-6 py-4 text-sm font-mono font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">${tx.amount}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-[#F0FDF4] dark:bg-[#0D2E1A] text-[#15803D] dark:text-[#4CE07E] border border-[#BBF7D0] dark:border-[#166534]">
                       {tx.status}

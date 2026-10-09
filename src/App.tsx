@@ -1,6 +1,5 @@
 import { NavigationProvider, useNavigation } from './store/NavigationContext';
 import { ThemeProvider } from './store/ThemeContext';
-import { AppDataProvider } from './store/AppDataContext';
 import LandingPage from './pages/LandingPage';
 import UserSelectPage from './pages/UserSelectPage';
 import HomePage from './pages/HomePage';
@@ -47,11 +46,9 @@ function Router() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppDataProvider>
         <NavigationProvider>
           <Router />
         </NavigationProvider>
-      </AppDataProvider>
     </ThemeProvider>
   );
 }

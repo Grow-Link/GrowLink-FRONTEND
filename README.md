@@ -83,7 +83,7 @@ src/
 │                     #   OpportunityDetail, Auction, TriviaDuel, AdminDashboard, AdminThemes,
 │                     #   AccountSettings, PublicProfile, PublishOpportunity, Subscription)
 ├── store/           # Contextos globales (NavigationContext, ThemeContext)
-├── services/        # Datos simulados (mockData) y textos legales (legalText)
+├── services/        # Clientes de los servicios (cursos, usuarios, trivia, roadmap) y textos legales
 ├── hooks/           # Hooks propios (useTimer)
 ├── types/           # Tipos compartidos de dominio
 └── imports/         # Imágenes y contenido pegado desde el diseño original
@@ -93,39 +93,31 @@ src/
 
 ## Estado actual
 
-La página **Roadmap** ya usa el backend real (cursos-service, ver abajo). El resto de pantallas todavía usan datos simulados en `src/services/mockData.ts` (usuarios, perfil, catálogo, métricas, etc.), así que por ejemplo el resumen del roadmap en Inicio sigue siendo el simulado. La sesión de acceso es únicamente una guarda del lado del cliente (no hay token ni autenticación real todavía), y las funciones de "tiempo real" (pujas, duelos) se simulan con temporizadores en el propio frontend en lugar de WebSockets.
+Todo lo que se ve sale de los servicios reales (usuarios-service, cursos-service y trivia-service): ya no hay datos simulados en el catálogo, el roadmap, los exámenes, el perfil, las métricas ni la trivia. La única ilustración fija es el mapa de ejemplo de la página de inicio (landing), que es decorativo.
 
-Está pensado para integrarse con una arquitectura de microservicios (Identidad, Perfil y Metas, Roadmap con IA, Marketplace y Pujas, Duelos de Trivia, Monetización, Temáticas y Observabilidad, y un servicio de Tiempo Real transversal) a través de un API Gateway.
+El login elige a una persona de prueba (`GET /api/auth/usuarios`) y guarda su token; cada llamada va con ese token por el proxy de Vite.
 
----
+## Cómo está armado el recorrido de una persona
 
-## Roadmap como grafo (HU-12)
+1. **Onboarding guiado** (`/perfil/completar`): primero se muestran las áreas que tienen cursos *hoy* (`GET /api/cursos/resumen`, con número de cursos, horas y ejemplos), luego se pide la meta (con ideas sacadas del catálogo) y por último el punto de partida, redactado en relación con esa meta. Si la meta no tiene sentido o no hay cursos para ella, el servidor la rechaza (400/422) y la pantalla lo explica; no se guarda nada ni se inventa una ruta.
+2. **Roadmap** (`/roadmap`): un mapa por etapas (Cimientos → Construcción → Especialización → Dominio) en vez de una línea recta. Al tocar un curso se abre su panel: por qué está en la ruta, descripción, temario, habilidades, prerrequisitos, **enlace para estudiarlo**, botón para **presentar el examen ahí mismo** y otras opciones equivalentes. El curso completado cambia de color y el avance (%, horas, habilidades) se actualiza. Si un curso se da de baja, se avisa y deja de recomendarse al actualizar.
+3. **Catálogo** (`/cursos`): búsqueda y filtros a la izquierda (área, nivel, duración, habilidad, con examen, solo mi roadmap), tarjetas a la derecha. Cada tarjeta lleva a la ficha del curso; **no hay botón de "marcar como completado"**: un curso solo se completa aprobando su examen (70%), que califica el servidor.
+4. **PDF** (botón *Descargar PDF* en el roadmap): documento propio, no una foto. Portada con la meta y el avance, mapa de la ruta (cada parada salta a la ficha del curso dentro del PDF) y una ficha por curso con descripción, horas, temario, habilidades, prerrequisitos y enlaces clicables. En celulares que lo permiten aparece también *Compartir*.
+5. **Trivia** (`/trivia`): crear sala o unirse con código, **retar a alguien** (búsqueda de personas, «te reto a una trivia», aviso con campana y sonido en la persona retada), sonidos, rachas, felicitaciones y confeti, y al final el podio con el detalle de la competencia. La pestaña *Ganadores* muestra el salón de la fama y el historial de partidas.
 
-`/roadmap` muestra el roadmap guardado en cursos-service como un grafo dirigido: una columna por **etapa** y una flecha por cada relación de prerequisito real (`A → B` = "A es requisito de B"). La etapa de un curso es la cadena de prerequisitos más larga que tiene dentro de la ruta, así que todo lo de la etapa 1 se puede tomar ya.
+El color principal es un verde azulado sereno con acentos cálidos (ámbar y coral para lo importante); el azul se evitó a propósito porque cansa la vista.
 
-- Cada curso muestra su estado: completado, "estás aquí" (el primero disponible según el orden sugerido), disponible, bloqueado o no disponible (dado de baja, HU-10).
-- Al pasar el cursor o tocar un curso se resaltan sus prerequisitos (azul) y lo que desbloquea (verde agua). El panel lateral los lista, junto con los prerequisitos reales que quedaron fuera de la ruta por categoría o nivel.
-- "Regenerar con IA" llama a `POST /api/roadmap/generar` (HU-11) con el perfil del onboarding.
-- Si las etapas no caben, las tarjetas se angostan y, si aún así no caben (celular), el grafo se desliza horizontalmente.
+## Navegación
 
-Datos: `GET /api/roadmap/mio`, `GET /api/cursos/completados`, `GET /api/cursos/estado-roadmap` y `GET /api/cursos/{id}` (solo para los prerequisitos externos). Código: `src/utils/roadmapGraph.ts` (grafo y layout, funciones puras), `src/components/PrerequisiteGraph.tsx` y `src/pages/RoadmapPage.tsx`.
+Cada rol tiene su inicio (usuario → Inicio, publicador → Mis cursos, admin → Métricas) y solo ve sus pantallas. Los **roadmaps son para quienes aprenden**: el publicador gestiona cursos y preguntas de trivia (y puede jugar), el admin modera y mira métricas. El botón «atrás» del navegador no puede llevar a pantallas de una sesión anterior: cada inicio de sesión marca el historial y las entradas de otra sesión se reemplazan por el inicio del rol.
 
-**Sesión:** el login del frontend sigue siendo simulado, así que cada usuario simulado se conecta con el usuario de prueba de usuarios-service que tiene su mismo rol (todos los de rol "usuario" ven el roadmap de *Ana (usuario)*). Ver `src/services/backendSession.ts`.
+## Conexión
 
-**Conexión:** el navegador solo habla con Vite y Vite reenvía `/api-usuarios` → usuarios-service y `/api-cursos` → cursos-service (`vite.config.ts`), así que no hace falta CORS. Si los servicios no corren en los puertos por defecto, crea un `.env.local` con `USUARIOS_SERVICE_URL=http://localhost:8080` y/o `CURSOS_SERVICE_URL=http://localhost:8086`.
+El navegador solo habla con Vite y Vite reenvía `/api-usuarios` → usuarios-service, `/api-cursos` → cursos-service, `/api-trivia` → trivia-service y `/ws-trivia` → el WebSocket (`vite.config.ts`), así que no hace falta CORS. Si los servicios no corren en los puertos por defecto, crea un `.env.local` con `USUARIOS_SERVICE_URL`, `CURSOS_SERVICE_URL` y/o `TRIVIA_SERVICE_URL`.
 
 ### Cómo probarlo
 
-1. Levanta usuarios-service y cursos-service con el **mismo** secreto (cada uno en su terminal, desde su carpeta):
-   ```bash
-   export GROWLINK_JWT_SECRET='CHANGE_ME_local_dev_only_not_a_real_secret_32bytes+'
-   docker compose up -d && mvn spring-boot:run
-   ```
-2. Carga datos de prueba (11 cursos con prerequisitos, un roadmap para *Ana (usuario)* y 2 cursos completados). Se puede correr varias veces, reutiliza los cursos que ya existen:
-   ```bash
-   npm run seed:roadmap
-   ```
-3. `npm run dev`, abre http://localhost:5173, entra como **Ana Torres** y ve a **Roadmap**.
+La forma más rápida es `infra/scripts/demo-sin-docker.ps1` (levanta todo con bases en memoria). Entra como **Ana Torres** para hacer el recorrido completo desde cero, o como **Esteban Londoño**, que ya trae un roadmap con 3 cursos aprobados para ver el avance.
 
 ---
 

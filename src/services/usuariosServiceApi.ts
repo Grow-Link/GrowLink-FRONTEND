@@ -137,3 +137,39 @@ export async function getEstadoHome(): Promise<EstadoHome> {
     secciones: Array.isArray(data?.secciones) ? data.secciones : [],
   };
 }
+
+/** Nombre de cada persona por id (para mostrar «Publicado por Beto Ramírez» en vez de un número). */
+export async function nombresDePersonas(): Promise<Map<string, string>> {
+  try {
+    const usuarios = await getUsuariosQuemados();
+    return new Map(usuarios.map((u) => [String(u.id), u.nombre]));
+  } catch {
+    return new Map();
+  }
+}
+
+export interface PersonaBuscada {
+  id: number;
+  nombre: string;
+  rol: string;
+  cargo?: string;
+  triviasGanadas: number;
+}
+
+/** GET /api/usuarios/buscar?q= — busca personas por nombre o cargo (mínimo 2 letras, máximo 10 resultados). */
+export async function buscarPersonas(texto: string, signal?: AbortSignal): Promise<PersonaBuscada[]> {
+  const q = texto.trim();
+  if (q.length < 2) return [];
+  const res = await authorizedFetch(
+    () => ({ url: `${USUARIOS_API}/api/usuarios/buscar?q=${encodeURIComponent(q)}`, init: { signal } }),
+    SERVICIO
+  );
+  const data = await readJson<any[]>(res, SERVICIO);
+  return (Array.isArray(data) ? data : []).map((u) => ({
+    id: Number(u.id),
+    nombre: String(u.nombre ?? ''),
+    rol: String(u.rol ?? 'USUARIO'),
+    cargo: u.cargo ?? undefined,
+    triviasGanadas: Number(u.triviasGanadas ?? 0),
+  }));
+}

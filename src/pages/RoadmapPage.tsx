@@ -1,22 +1,21 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
-import RoadmapGraph from '../components/RoadmapGraph';
-import { ESTADO_LABEL, GraphLegend } from '../components/PrerequisiteGraph';
+import ExamModal from '../components/ExamModal';
+import StageMap from '../components/roadmap/StageMap';
+import NodePanel from '../components/roadmap/NodePanel';
 import { useNavigation } from '../store/NavigationContext';
 import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
-import { fetchRoadmap, generarRoadmap, nivelLabel, type RoadmapBackendData } from '../services/roadmapApi';
-import { categoriaDesdeEnum } from '../services/cursosServiceApi';
-import { buildRoadmapGraph, type GraphNode } from '../utils/roadmapGraph';
+import { fetchRoadmap, generarRoadmap } from '../services/roadmapApi';
+import { compartirPdfRoadmap, descargarPdfRoadmap, puedeCompartirPdf } from '../utils/roadmapPdf';
 import { timeAgo } from '../utils/format';
-import { downloadRoadmapPdf } from '../utils/roadmapPdf';
+import type { RoadmapNode, RoadmapView } from '../utils/roadmapModel';
 
-// HU-12: el roadmap guardado en cursos-service (HU-11) visto como grafo de
-// prerequisitos. Los datos vienen del backend real; el perfil (metas, intereses,
-// nivel) para regenerar sigue saliendo del onboarding del frontend.
+// HU-12: el roadmap de la persona como un mapa por etapas. Cada curso es una parada; al tocarla se ve por qué
+// está en la ruta, qué hacer ahora (estudiar o presentar el examen) y qué otras opciones hay para ese paso.
 
-const page = 'min-h-screen bg-[#F7F9FA] dark:bg-[#081629]';
-const card = 'bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl';
+const page = 'min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]';
+const card = 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl';
 
 function Spinner() {
   return (
@@ -32,8 +31,48 @@ function CenteredMessage({ title, children }: { title: string; children: ReactNo
     <div className={page}>
       <Navbar />
       <div className="max-w-lg mx-auto text-center px-4 py-24">
-        <h1 className="text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-3">{title}</h1>
+        <h1 className="text-2xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-3">{title}</h1>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function useEsEscritorio() {
+  const consulta = '(min-width: 1024px)';
+  const [esEscritorio, setEsEscritorio] = useState(() => window.matchMedia(consulta).matches);
+  useEffect(() => {
+    const m = window.matchMedia(consulta);
+    const alCambiar = () => setEsEscritorio(m.matches);
+    m.addEventListener('change', alCambiar);
+    return () => m.removeEventListener('change', alCambiar);
+  }, []);
+  return esEscritorio;
+}
+
+function Anillo({ porcentaje }: { porcentaje: number }) {
+  const largo = 2 * Math.PI * 46;
+  return (
+    <div className="relative w-28 h-28 shrink-0">
+      <svg viewBox="0 0 110 110" className="w-full h-full -rotate-90" aria-hidden="true">
+        <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="9" />
+        <circle
+          cx="55"
+          cy="55"
+          r="46"
+          fill="none"
+          stroke="#F5D98B"
+          strokeWidth="9"
+          strokeLinecap="round"
+          strokeDasharray={largo}
+          strokeDashoffset={largo * (1 - porcentaje / 100)}
+          className="gl-ring-draw"
+          style={{ ['--ring-total' as string]: largo }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+        <span className="text-3xl font-display font-extrabold leading-none">{porcentaje}%</span>
+        <span className="text-[10px] uppercase tracking-wider opacity-80 mt-1">de tu ruta</span>
       </div>
     </div>
   );
@@ -41,104 +80,110 @@ function CenteredMessage({ title, children }: { title: string; children: ReactNo
 
 export default function RoadmapPage() {
   const { navigate, currentUser } = useNavigation();
+  const esEscritorio = useEsEscritorio();
 
-  // undefined = cargando por primera vez, null = el usuario todavía no tiene roadmap
-  const [data, setData] = useState<RoadmapBackendData | null | undefined>(undefined);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<Perfil | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-  const graphRef = useRef<HTMLDivElement>(null);
+  // undefined = cargando por primera vez, null = todavía no tiene roadmap
+  const [vista, setVista] = useState<RoadmapView | null | undefined>(undefined);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  const [generando, setGenerando] = useState(false);
+  const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
+  const [seleccionado, setSeleccionado] = useState<number | null>(null);
+  const [examenDe, setExamenDe] = useState<RoadmapNode | null>(null);
+  const [logro, setLogro] = useState<string | null>(null);
+  const [pdf, setPdf] = useState<'idle' | 'descargando' | 'compartiendo'>('idle');
+  const [errorPdf, setErrorPdf] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentUser) return;
-    let ignore = false;
-    setLoadError(null);
+    let ignorar = false;
+    setErrorCarga(null);
     Promise.all([fetchRoadmap(), getPerfil()])
-      .then(([d, p]) => {
-        if (!ignore) {
-          setData(d);
-          setProfile(p);
+      .then(([v, p]) => {
+        if (!ignorar) {
+          setVista(v);
+          setPerfil(p);
         }
       })
       .catch((e: Error) => {
-        if (!ignore) setLoadError(e.message);
+        if (!ignorar) setErrorCarga(e.message);
       });
     return () => {
-      ignore = true;
+      ignorar = true;
     };
-  }, [currentUser, reloadKey]);
+  }, [currentUser, recarga]);
 
-  // Escape cierra el detalle desde cualquier parte de la página (no solo desde el grafo)
   useEffect(() => {
-    if (selectedId === null) return;
+    if (!logro) return;
+    const id = window.setTimeout(() => setLogro(null), 7000);
+    return () => window.clearTimeout(id);
+  }, [logro]);
+
+  const cerrarHoja = useCallback(() => setSeleccionado(null), []);
+  useEffect(() => {
+    if (seleccionado === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedId(null);
+      if (e.key === 'Escape' && !examenDe) cerrarHoja();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId]);
-
-  const graph = useMemo(
-    () => (data ? buildRoadmapGraph(data.roadmap.cursos, data.completados, data.inactivos) : null),
-    [data]
-  );
+  }, [seleccionado, examenDe, cerrarHoja]);
 
   if (!currentUser) return null;
-  const hasProfile = profile?.completo ?? false;
+  const tienePerfil = perfil?.completo ?? false;
 
-  async function handleGenerate() {
-    if (!profile || !hasProfile) {
+  async function actualizarRoadmap() {
+    if (!perfil || !tienePerfil) {
       navigate('onboarding');
       return;
     }
-    setGenerating(true);
-    setGenerateError(null);
+    setGenerando(true);
+    setErrorGenerar(null);
     try {
-      await generarRoadmap({ goals: profile.metas ?? '', interests: profile.intereses, level: profile.nivel ?? 'principiante' });
-      setSelectedId(null);
-      setReloadKey((k) => k + 1);
+      await generarRoadmap({ goals: perfil.metas ?? '', interests: perfil.intereses, level: perfil.nivel ?? 'principiante' });
+      setSeleccionado(null);
+      setRecarga((k) => k + 1);
     } catch (e) {
-      setGenerateError((e as Error).message);
+      setErrorGenerar((e as Error).message);
     } finally {
-      setGenerating(false);
+      setGenerando(false);
     }
   }
 
-  async function handleDownloadPdf() {
-    if (!graphRef.current || !data) return;
-    setDownloadingPdf(true);
-    setDownloadError(null);
+  async function bajarPdf() {
+    if (!vista) return;
+    setPdf('descargando');
+    setErrorPdf(null);
     try {
-      const nodes = data.roadmap.cursos;
-      const total = nodes.length;
-      const done = data.completados.size;
-      await downloadRoadmapPdf(graphRef.current, {
-        nombre: currentUser?.name ?? 'usuario',
-        progresoPct: total > 0 ? Math.round((done / total) * 100) : 0,
-        totalCursos: total,
-        completados: done,
-      });
+      await descargarPdfRoadmap(vista, currentUser?.name ?? 'usuario');
     } catch (e) {
-      setDownloadError(e instanceof Error ? e.message : 'No se pudo generar el PDF.');
+      setErrorPdf(e instanceof Error ? e.message : 'No se pudo generar el PDF.');
     } finally {
-      setDownloadingPdf(false);
+      setPdf('idle');
     }
   }
 
-  if (data === undefined) {
-    if (loadError) {
+  async function compartirPdf() {
+    if (!vista) return;
+    setPdf('compartiendo');
+    setErrorPdf(null);
+    try {
+      await compartirPdfRoadmap(vista, currentUser?.name ?? 'usuario');
+    } catch (e) {
+      // si la persona cierra el menú de compartir no es un error
+      if (!(e instanceof DOMException && e.name === 'AbortError')) setErrorPdf(e instanceof Error ? e.message : 'No se pudo compartir el PDF.');
+    } finally {
+      setPdf('idle');
+    }
+  }
+
+  if (vista === undefined) {
+    if (errorCarga) {
       return (
         <CenteredMessage title="No pudimos cargar tu roadmap">
-          <p className="text-[#6B7A99] dark:text-[#8BA5C2] mb-2">{loadError}</p>
-          <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] mb-6">
-            Revisa que usuarios-service (8080) y cursos-service (8086) estén corriendo con el mismo GROWLINK_JWT_SECRET.
-          </p>
-          <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+          <p className="text-[#6B7A74] dark:text-[#98B0A6] mb-6">{errorCarga}</p>
+          <Button variant="secondary" onClick={() => setRecarga((k) => k + 1)}>Reintentar</Button>
         </CenteredMessage>
       );
     }
@@ -149,293 +194,189 @@ export default function RoadmapPage() {
     );
   }
 
-  if (data === null || !graph) {
+  if (vista === null) {
     return (
       <CenteredMessage title="Aún no tienes un roadmap">
-        <p className="text-[#6B7A99] dark:text-[#8BA5C2] mb-6">
-          {hasProfile
-            ? 'Genera tu camino de cursos a partir de tus metas, intereses y nivel.'
-            : 'Completa tu perfil primero para que podamos generar tu camino de cursos.'}
+        <p className="text-[#6B7A74] dark:text-[#98B0A6] mb-6">
+          Cuéntanos qué quieres lograr y armamos tu ruta paso a paso con los cursos que de verdad tenemos.
         </p>
-        {hasProfile ? (
-          <Button variant="gradient" onClick={handleGenerate} disabled={generating}>
-            {generating ? <><Spinner /> Generando…</> : 'Generar mi roadmap'}
-          </Button>
-        ) : (
-          <Button variant="gradient" onClick={() => navigate('onboarding')}>Completar mi perfil</Button>
-        )}
-        {generateError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] mt-4">{generateError}</p>}
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button variant="gradient" onClick={() => navigate('onboarding')}>Armar mi roadmap</Button>
+          {tienePerfil && (
+            <Button variant="secondary" onClick={actualizarRoadmap} disabled={generando}>
+              {generando ? <><Spinner /> Generando…</> : 'Usar mi perfil guardado'}
+            </Button>
+          )}
+        </div>
+        {errorGenerar && <p className="text-sm text-[#DC2626] dark:text-[#F87171] mt-4">{errorGenerar}</p>}
       </CenteredMessage>
     );
   }
 
-  const nodes = graph.nodes;
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const totalNodes = nodes.length;
-  const completedCount = nodes.filter((n) => n.estado === 'completed').length;
-  const progressPct = totalNodes > 0 ? Math.round((completedCount / totalNodes) * 100) : 0;
-  const current = nodes.find((n) => n.estado === 'current');
-  const stale = nodes.some((n) => n.inactivo && n.estado !== 'completed');
-  const selected = selectedId !== null ? byId.get(selectedId) : undefined;
+  const nodoSeleccionado = vista.nodes.find((n) => n.cursoId === seleccionado) ?? null;
+  // en escritorio el panel nunca está vacío: si nadie tocó nada, muestra el siguiente paso
+  const nodoDelPanel = nodoSeleccionado ?? (esEscritorio ? vista.siguiente ?? vista.nodes[0] ?? null : null);
+  const terminado = vista.progreso.total > 0 && vista.progreso.completados === vista.progreso.total;
+  const etiquetaOrigen =
+    vista.generadoPor === 'IA' ? 'Armado con inteligencia artificial' : vista.generadoPor === 'RESPALDO' ? 'Armado en modo de respaldo (sin IA)' : 'Tu roadmap';
+
+  const panel = nodoDelPanel && (
+    <NodePanel
+      key={nodoDelPanel.cursoId}
+      nodo={nodoDelPanel}
+      sugerido={!nodoSeleccionado}
+      onSelectNode={setSeleccionado}
+      onTakeExam={setExamenDe}
+      onOpenDetail={(id) => navigate('course-detail', { id: String(id) })}
+      onRegenerate={actualizarRoadmap}
+      onClose={cerrarHoja}
+    />
+  );
 
   return (
     <div className={page}>
       <Navbar />
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
-          <div>
-            <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">
-              {data.roadmap.generadoPor === 'IA'
-                ? 'Roadmap generado por IA'
-                : data.roadmap.generadoPor === 'RESPALDO'
-                  ? 'Roadmap en modo de respaldo (sin IA)'
-                  : 'Tu roadmap'}
-            </span>
-            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2 leading-tight">
-              Tu camino de aprendizaje
-            </h1>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-2">
-              {totalNodes === 0
-                ? 'Sin cursos por ahora'
-                : `${totalNodes} ${totalNodes === 1 ? 'curso' : 'cursos'} en ${graph.etapas} ${graph.etapas === 1 ? 'etapa' : 'etapas'}`}{' '}
-              · generado {timeAgo(data.roadmap.creadoEn)}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* ---------------- encabezado ---------------- */}
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0E8A7D] via-[#0B7A6E] to-[#0B6F65] text-white p-5 sm:p-8">
+          <div aria-hidden="true" className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-[#12C2A8]/25 blur-3xl" />
+          <div aria-hidden="true" className="absolute -left-10 -bottom-20 w-56 h-56 rounded-full bg-[#F5A524]/20 blur-3xl" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
+            <div className="flex-1 min-w-0">
+              <span className="text-[#B7E3DA] text-xs font-mono font-semibold tracking-widest uppercase">{etiquetaOrigen}</span>
+              <h1 className="text-2xl sm:text-4xl font-display font-bold mt-2 leading-tight">
+                {vista.meta ? <>Tu ruta hacia <span className="text-[#F5D98B]">«{vista.meta}»</span></> : 'Tu camino de aprendizaje'}
+              </h1>
+              {vista.resumen && <p className="mt-3 text-[#D3EEE8] text-sm sm:text-base leading-relaxed max-w-2xl">{vista.resumen}</p>}
+              <div className="flex flex-wrap gap-2 mt-4">
+                {vista.areas.map((a) => (
+                  <span key={a} className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">{a}</span>
+                ))}
+                <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Parto como {vista.nivel}</span>
+                <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Armado {timeAgo(vista.creadoEn)}</span>
+              </div>
+            </div>
+            <Anillo porcentaje={vista.progreso.porcentaje} />
+          </div>
+
+          <dl className="relative grid grid-cols-3 gap-2 sm:gap-4 mt-6">
+            {[
+              { valor: `${vista.progreso.completados}/${vista.progreso.total}`, etiqueta: 'cursos aprobados' },
+              { valor: `${vista.progreso.horasHechas}/${vista.progreso.horasTotales} h`, etiqueta: 'de estudio' },
+              { valor: `${vista.progreso.habilidadesDesbloqueadas.length}/${vista.progreso.habilidadesTotales.length}`, etiqueta: 'habilidades' },
+            ].map((d) => (
+              <div key={d.etiqueta} className="rounded-2xl bg-white/12 backdrop-blur-sm px-3 py-3 text-center">
+                <dd className="text-base sm:text-2xl font-display font-bold whitespace-nowrap">{d.valor}</dd>
+                <dt className="text-[11px] sm:text-xs text-[#D3EEE8]">{d.etiqueta}</dt>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* ---------------- acciones ---------------- */}
+        <div className="flex flex-wrap items-center gap-2.5 mt-4">
+          <Button variant="secondary" size="sm" onClick={() => navigate('onboarding')}>Cambiar mi meta</Button>
+          <Button variant="secondary" size="sm" onClick={actualizarRoadmap} disabled={generando}>
+            {generando ? <><Spinner /> Actualizando…</> : 'Actualizar roadmap'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={bajarPdf} disabled={pdf !== 'idle'}>
+            {pdf === 'descargando' ? <><Spinner /> Preparando PDF…</> : 'Descargar PDF'}
+          </Button>
+          {puedeCompartirPdf() && (
+            <Button variant="secondary" size="sm" onClick={compartirPdf} disabled={pdf !== 'idle'}>
+              {pdf === 'compartiendo' ? <><Spinner /> Compartiendo…</> : 'Compartir'}
+            </Button>
+          )}
+        </div>
+        {(errorGenerar || errorPdf) && (
+          <p role="alert" className="mt-3 text-sm text-[#DC2626] dark:text-[#F87171]">{errorGenerar ?? errorPdf}</p>
+        )}
+
+        {/* ---------------- avisos ---------------- */}
+        {logro && (
+          <div role="status" className="mt-4 rounded-2xl border border-[#4CE07E]/50 bg-[#F0FDF4] dark:bg-[#0D2E1A] px-4 py-3 text-sm font-semibold text-[#15803D] dark:text-[#4CE07E] gl-fade-up">
+            {logro}
+          </div>
+        )}
+        {vista.hayDadosDeBaja && (
+          <div role="alert" className="mt-4 rounded-2xl border border-[#F5A524]/50 bg-[#FBF3E4] dark:bg-[#3A2A0D] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">
+              <strong>Algunos cursos de tu ruta ya no están disponibles.</strong> Actualiza tu roadmap y los reemplazamos por otras opciones; mientras tanto no se recomiendan.
             </p>
-            {data.roadmap.generadoPor === 'RESPALDO' && (
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1 max-w-xl">
-                Se ordenó con los prerequisitos reales de los cursos de tus intereses y tu nivel. La recomendación según tus
-                metas con IA se activa cuando el servicio tiene su llave configurada.
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col items-start sm:items-end gap-2">
-            <div className="flex flex-wrap items-center gap-2 self-start sm:self-end">
-              {totalNodes > 0 && (
-                <Button variant="secondary" onClick={handleDownloadPdf} disabled={downloadingPdf}>
-                  {downloadingPdf ? (
-                    <><Spinner /> Generando PDF...</>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Descargar PDF
-                    </>
-                  )}
-                </Button>
-              )}
-              <Button variant="secondary" onClick={handleGenerate} disabled={generating}>
-                {generating ? (
-                  <><Spinner /> Regenerando...</>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Regenerar roadmap
-                  </>
-                )}
-              </Button>
-            </div>
-            {generateError && <p className="text-xs text-[#DC2626] dark:text-[#F87171]">{generateError}</p>}
-            {downloadError && <p className="text-xs text-[#DC2626] dark:text-[#F87171]">{downloadError}</p>}
-          </div>
-        </div>
-
-        {loadError && (
-          <div className="mb-6 rounded-2xl border border-[#FECACA] dark:border-[#4C1D1D] bg-[#FEF2F2] dark:bg-[#2A1111] p-4 text-sm text-[#DC2626] dark:text-[#F87171]">
-            No se pudo actualizar el roadmap: {loadError}
+            <Button size="sm" onClick={actualizarRoadmap} disabled={generando}>Actualizar ahora</Button>
           </div>
         )}
-
-        {stale && (
-          <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[#F59E0B]/30 bg-[#FFFBEB] dark:bg-[#3A2A0D] p-5">
-            <div>
-              <p className="font-display font-bold text-[#B45309] dark:text-[#FBBF24]">Un curso de tu roadmap ya no está disponible</p>
-              <p className="text-sm text-[#92601C] dark:text-[#F3D08A] mt-1">Regenéralo para que la IA lo reemplace por una alternativa activa.</p>
+        {terminado && (
+          <div className={`${card} mt-4 p-5 text-center`}>
+            <p className="text-4xl">🏆</p>
+            <h2 className="font-display font-bold text-xl text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">¡Completaste toda tu ruta!</h2>
+            <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mt-1">Estás listo para el siguiente reto. Define una meta nueva y seguimos creciendo.</p>
+            <div className="flex flex-wrap justify-center gap-2.5 mt-4">
+              <Button variant="gradient" onClick={() => navigate('onboarding')}>Definir una nueva meta</Button>
+              <Button variant="secondary" onClick={() => navigate('trivia')}>Celebrar con una trivia</Button>
             </div>
           </div>
         )}
 
-        <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_288px] gap-6 lg:items-start">
-          <div className={`${card} p-3 min-w-0`}>
-            {totalNodes === 0 ? (
-              <div className="text-center px-4 py-16">
-                <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2">Tu roadmap no tiene cursos</p>
-                <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">
-                  No hay cursos activos que coincidan con tus intereses y nivel. Regenéralo cuando se publiquen cursos nuevos.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1 pb-3 mb-1 border-b border-[#DDE4ED] dark:border-[#1C3254]">
-                  <GraphLegend />
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] shrink-0">Toca un curso para ver qué requiere y qué desbloquea</p>
-                </div>
-                <div ref={graphRef} className="py-2">
-                  <RoadmapGraph graph={graph} selectedId={selectedId} onSelect={setSelectedId} />
-                </div>
-              </>
-            )}
-          </div>
+        {/* ---------------- siguiente paso (atajo) ---------------- */}
+        {vista.siguiente && !terminado && (
+          <button
+            type="button"
+            onClick={() => setSeleccionado(vista.siguiente!.cursoId)}
+            className="mt-4 w-full text-left rounded-2xl border-2 border-[#F5A524] bg-[#FFFBEB] dark:bg-[#3A2A0D]/60 px-4 py-3.5 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
+          >
+            <span className="w-10 h-10 rounded-full bg-[#F5A524] text-white flex items-center justify-center gl-soft-pulse shrink-0">
+              <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#B45309] dark:text-[#FBBF24]">Tu siguiente paso</span>
+              <span className="block font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{vista.siguiente.titulo}</span>
+              <span className="block text-xs text-[#6B7A74] dark:text-[#98B0A6]">
+                {vista.siguiente.horas != null ? `${vista.siguiente.horas} horas · ` : ''}toca para ver cómo empezar
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-[#B45309] text-xl">→</span>
+          </button>
+        )}
 
-          <div className="space-y-4 lg:sticky lg:top-24">
-            <div className="bg-[#0B1F3A] rounded-2xl p-5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 gl-gradient opacity-10 rounded-full blur-2xl translate-x-1/3 -translate-y-1/3" />
-              <div className="relative z-10">
-                <p className="text-xs text-[#8BA5C2] font-semibold uppercase tracking-wider mb-2">Progreso del camino</p>
-                <p className="text-3xl font-mono font-bold text-white mb-3">{progressPct}%</p>
-                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mb-2">
-                  <div className="h-full rounded-full gl-gradient" style={{ width: `${progressPct}%` }} />
-                </div>
-                <p className="text-xs text-[#8BA5C2] font-mono">{completedCount} de {totalNodes} completados</p>
-              </div>
-            </div>
+        {/* ---------------- mapa + panel ---------------- */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 mt-6 items-start">
+          <StageMap stages={vista.stages} selectedId={seleccionado} onSelect={setSeleccionado} />
 
-            {selected ? (
-              <CourseDetailPanel
-                node={selected}
-                byId={byId}
-                data={data}
-                onSelect={setSelectedId}
-              />
-            ) : (
-              current && (
-                <div className={`${card} p-5`}>
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-2">Estás aquí</p>
-                  <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-1">{current.titulo}</p>
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mb-3">
-                    Etapa {current.etapa + 1} · {nivelLabel(current.nivel)}
-                  </p>
-                  <Button variant="gradient" size="sm" className="w-full" onClick={() => setSelectedId(current.id)}>
-                    Ver en el grafo
-                  </Button>
-                </div>
-              )
-            )}
-
-            <button
-              onClick={() => navigate('catalog')}
-              className="gl-card-hover w-full text-left bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 cursor-pointer"
-            >
-              <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">Catálogo general</p>
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1">Explora todos los cursos por categoría y nivel</p>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CourseDetailPanel({
-  node,
-  byId,
-  data,
-  onSelect,
-}: {
-  node: GraphNode;
-  byId: Map<number, GraphNode>;
-  data: RoadmapBackendData;
-  onSelect: (id: number | null) => void;
-}) {
-  const check = (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[#15803D] dark:text-[#4CE07E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-label="completado">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  );
-
-  const linkList = (ids: number[]) => (
-    <ul className="space-y-1">
-      {ids.map((id) => {
-        const n = byId.get(id)!;
-        return (
-          <li key={id}>
-            <button
-              type="button"
-              onClick={() => onSelect(id)}
-              className="w-full flex items-center gap-2 text-left text-sm rounded-lg px-2 py-1.5 hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer"
-            >
-              <span className="font-mono text-[10px] text-[#6B7A99] dark:text-[#8BA5C2]">#{n.orden + 1}</span>
-              <span className="flex-1 min-w-0 truncate">{n.titulo}</span>
-              {n.estado === 'completed' && check}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
-
-  const heading = (text: string, color: string) => (
-    <p className={`text-[10px] font-mono font-bold uppercase tracking-widest mb-1.5 ${color}`}>{text}</p>
-  );
-
-  return (
-    <div className={`${card} p-5 gl-fade-up`} aria-live="polite">
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider">
-          Etapa {node.etapa + 1} · #{node.orden + 1} en el orden sugerido
-        </p>
-        <button
-          type="button"
-          onClick={() => onSelect(null)}
-          aria-label="Cerrar detalle"
-          className="text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-white cursor-pointer"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      <p className="font-display font-bold text-lg leading-snug text-[#0B1F3A] dark:text-[#E2EBF6]">{node.titulo}</p>
-      <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] mt-1 mb-4">
-        {categoriaDesdeEnum(node.categoria)} · {nivelLabel(node.nivel)} ·{' '}
-        <span className="font-semibold">{node.inactivo && node.estado !== 'completed' ? 'No disponible' : ESTADO_LABEL[node.estado]}</span>
-      </p>
-
-      {node.inactivo && node.estado !== 'completed' && (
-        <p className="text-xs rounded-lg p-2.5 mb-4 bg-[#FFFBEB] dark:bg-[#3A2A0D] text-[#B45309] dark:text-[#FBBF24]">
-          Este curso fue dado de baja. Regenera tu roadmap para reemplazarlo.
-        </p>
-      )}
-
-      <div className="space-y-4">
-        <div>
-          {heading('Requiere', 'text-[#1E73E8] dark:text-[#7CB6FF]')}
-          {node.requiere.length > 0 ? (
-            linkList(node.requiere)
+          {esEscritorio ? (
+            <aside className={`${card} sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto`} aria-label="Detalle del curso">
+              {panel ?? <p className="p-5 text-sm text-[#6B7A74]">Toca un curso del mapa para ver su detalle.</p>}
+            </aside>
           ) : (
-            node.externos.length === 0 && (
-              <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] px-2">Nada: puedes empezar por aquí.</p>
+            nodoSeleccionado && (
+              <div className="fixed inset-0 z-40 flex items-end bg-black/45" onClick={cerrarHoja}>
+                <div
+                  className="gl-sheet-up w-full max-h-[88vh] overflow-y-auto bg-white dark:bg-[#15231F] rounded-t-3xl border-t border-[#E1E6DF] dark:border-[#27403A]"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Detalle del curso"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {panel}
+                </div>
+              </div>
             )
           )}
-          {node.externos.length > 0 && (
-            <div className="mt-2">
-              <p className="text-[11px] text-[#6B7A99] dark:text-[#8BA5C2] px-2 mb-1">Fuera de tu ruta (otra categoría o nivel):</p>
-              <ul className="space-y-1">
-                {node.externos.map((id) => {
-                  const ext = data.externos.get(id);
-                  return (
-                    <li key={id} className="flex items-center gap-2 text-sm px-2 py-1 text-[#6B7A99] dark:text-[#8BA5C2]">
-                      <span className="flex-1 min-w-0 truncate">
-                        {ext ? `${ext.titulo} · ${categoriaDesdeEnum(ext.categoria)}` : `Curso #${id}`}
-                      </span>
-                      {data.completados.has(id) && check}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
         </div>
-        <div>
-          {heading('Desbloquea', 'text-[#0F9E89] dark:text-[#2DD4BF]')}
-          {node.desbloquea.length > 0 ? (
-            linkList(node.desbloquea)
-          ) : (
-            <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] px-2">Ningún otro curso de tu ruta.</p>
-          )}
-        </div>
-      </div>
+      </main>
+
+      {examenDe && (
+        <ExamModal
+          cursoId={examenDe.cursoId}
+          titulo={examenDe.titulo}
+          linkContenido={examenDe.link}
+          onClose={() => setExamenDe(null)}
+          onApproved={() => {
+            setLogro(`¡Aprobaste «${examenDe.titulo}»! Tu roadmap ya avanzó.`);
+            setRecarga((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

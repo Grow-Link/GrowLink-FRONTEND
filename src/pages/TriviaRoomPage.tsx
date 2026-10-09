@@ -1,25 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
+import Confetti from '../components/Confetti';
+import HorizontalTabs from '../components/HorizontalTabs';
 import LiveIndicator from '../components/LiveIndicator';
+import ConfigPartidaForm, { CONFIG_INICIAL, type ConfigPartida } from '../components/trivia/ConfigPartida';
+import RetarPanel from '../components/trivia/RetarPanel';
+import GanadoresPanel from '../components/trivia/GanadoresPanel';
+import { CLAVE_UNIRSE_SALA, EVENTO_UNIRSE_SALA } from '../components/RetosCampana';
 import { useNavigation } from '../store/NavigationContext';
 import { getSession } from '../services/backendSession';
-import { crearSala, obtenerSala, type Sala } from '../services/triviaServiceApi';
+import { crearSala, obtenerPartida, obtenerSala, type DetallePartida, type Reto, type Sala } from '../services/triviaServiceApi';
 import { TriviaSocket, type ParticipanteMsg, type SalaMensaje } from '../services/triviaSocket';
-import { CATEGORIES } from '../services/mockData';
-import type { TriviaParticipant, TriviaQuestionCount, TriviaSecondsPerQuestion } from '../types';
+import { estaSilenciado, silenciar, sonar } from '../utils/sonidos';
+import type { TriviaParticipant } from '../types';
 
-// HU-etapa3: sala de trivia real contra trivia-service. POST/GET /api/salas
-// para crear/consultar la sala; todo lo demás (unirse, iniciar, preguntas,
-// leaderboard, resultados) va por STOMP sobre WS — ver triviaSocket.ts.
-// trivia-service nunca manda la respuesta correcta en la pregunta (anti-trampa),
-// así que al responder no se puede pintar la opción en verde/rojo: solo se
-// marca cuál elegiste, y el puntaje real llega después por LEADERBOARD.
+// Sala de trivia real contra trivia-service. POST/GET /api/salas para crear/consultar la sala; todo lo demás
+// (unirse, iniciar, preguntas, leaderboard, resultados) va por STOMP sobre WS — ver triviaSocket.ts.
+// trivia-service nunca manda la respuesta correcta en la pregunta (anti-trampa): el acierto de cada quien llega
+// en RESPUESTA_REGISTRADA, solo para quien respondió.
 
 type Stage = 'lobby' | 'create' | 'join' | 'waiting' | 'playing' | 'result';
-
-const QUESTION_COUNTS: TriviaQuestionCount[] = [5, 10, 15];
-const SECONDS_OPTIONS: TriviaSecondsPerQuestion[] = [10, 15, 20];
+type PestanaLobby = 'jugar' | 'retar' | 'ganadores';
 
 type PreguntaMsg = Extract<SalaMensaje, { type: 'PREGUNTA' }>;
 
@@ -27,23 +29,42 @@ interface RankingItem {
   usuarioId: number;
   nombre: string;
   score: number;
+  aciertos: number;
 }
 
-// El contrato no fija el shape exacto de cada item de `ranking` — se parsea
-// probando varios nombres posibles, igual que el resto de clientes del proyecto.
+interface Finalista {
+  id: string;
+  name: string;
+  score: number;
+  aciertos: number;
+  isCurrentUser: boolean;
+}
+
+const PESTANAS = [
+  { key: 'jugar', label: 'Jugar' },
+  { key: 'retar', label: 'Retar a alguien' },
+  { key: 'ganadores', label: 'Ganadores' },
+];
+
+// colores de las cuatro opciones: cálidos y frescos, para que cada una se reconozca rápido
+const COLOR_OPCION = ['#12C2A8', '#F2704E', '#F5A524', '#0E8A7D'];
+
+const FELICITACIONES = ['¡Excelente!', '¡Así se hace!', '¡Imparable!', '¡Qué nivel!', '¡Muy bien!', '¡Brillante!'];
+const ANIMOS = ['¡Casi!', 'La próxima es tuya', 'Sigue, que vas bien', '¡Ánimo!'];
+
+const elegir = (lista: string[]) => lista[Math.floor(Math.random() * lista.length)];
+
 function parseRankingItem(item: unknown): RankingItem {
   const o = item as any;
   return {
     usuarioId: Number(o?.usuarioId ?? o?.id ?? -1),
     nombre: String(o?.nombre ?? o?.name ?? '???'),
     score: Number(o?.puntaje ?? o?.puntuacion ?? o?.score ?? o?.puntos ?? 0),
+    aciertos: Number(o?.aciertos ?? 0),
   };
 }
 
-// SALA_UPDATE no dice quién es el anfitrión entre los participantes — se asume
-// que es quien aparece primero (quien crea la sala es, en la práctica, el
-// primero en mandar "unirse"). Da igual para habilitar "Iniciar sala": eso se
-// controla con el `isHost` local de quien creó la sala, no con esta lista.
+// SALA_UPDATE no dice quién es el anfitrión entre los participantes — se asume que es quien aparece primero.
 function mergeParticipantes(prev: TriviaParticipant[], llegaron: ParticipanteMsg[], miUsuarioId: number): TriviaParticipant[] {
   const porId = new Map(prev.map((p) => [p.id, p]));
   return llegaron.map((m, i) => {
@@ -100,17 +121,20 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   );
 }
 
+const pagina = 'min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815] flex flex-col';
+
 export default function TriviaRoomPage() {
   const { navigate, currentUser } = useNavigation();
   const session = getSession();
 
   const [stage, setStage] = useState<Stage>('lobby');
+  const [pestana, setPestana] = useState<PestanaLobby>('jugar');
+  const [personaRevancha, setPersonaRevancha] = useState<{ id: number; nombre: string } | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [sala, setSala] = useState<Sala | null>(null);
+  const [retoActual, setRetoActual] = useState<Reto | null>(null);
 
-  const [createCategory, setCreateCategory] = useState('');
-  const [numQuestions, setNumQuestions] = useState<TriviaQuestionCount>(10);
-  const [secondsPerQuestion, setSecondsPerQuestion] = useState<TriviaSecondsPerQuestion>(15);
+  const [config, setConfig] = useState<ConfigPartida>(CONFIG_INICIAL);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -122,6 +146,7 @@ export default function TriviaRoomPage() {
   const [wsErrorMsg, setWsErrorMsg] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [silencio, setSilencio] = useState(estaSilenciado());
 
   const [participants, setParticipants] = useState<TriviaParticipant[]>([]);
   const [prevPositions, setPrevPositions] = useState<Record<string, number>>({});
@@ -129,30 +154,31 @@ export default function TriviaRoomPage() {
   const [question, setQuestion] = useState<PreguntaMsg | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [answered, setAnswered] = useState(false);
-  const [answerResult, setAnswerResult] = useState<{ correcta: boolean; puntos: number } | null>(null);
+  const [answerResult, setAnswerResult] = useState<{ correcta: boolean; puntos: number; mensaje: string } | null>(null);
+  const [racha, setRacha] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
-  const [finalRanking, setFinalRanking] = useState<TriviaParticipant[]>([]);
-  const [winnerId, setWinnerId] = useState<number | null>(null);
+  const [finalRanking, setFinalRanking] = useState<Finalista[]>([]);
+  const [winnerIds, setWinnerIds] = useState<number[]>([]);
+  const [empate, setEmpate] = useState(false);
+  const [detallePartida, setDetallePartida] = useState<DetallePartida | null>(null);
 
   const socketRef = useRef<TriviaSocket | null>(null);
   const participantsRef = useRef<TriviaParticipant[]>([]);
+  const answeredRef = useRef(false);
+  const rachaRef = useRef(0);
+  const ultimoTick = useRef<number | null>(null);
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
+  useEffect(() => {
+    answeredRef.current = answered;
+  }, [answered]);
 
-  // "unirse" hace dos cosas en el backend: registra la fila en sala_participante
-  // Y ata esta conexión STOMP a un usuarioId (sin eso, /responder no sabe quién
-  // contestó y el backend responde con un error de "usuario_id" nulo — se
-  // confirmó probando con dos usuarios reales). Al host, POST /api/salas ya lo
-  // registró como participante, así que su "unirse" choca con una llave
-  // duplicada — pero igual hay que mandarlo para que el backend asocie su sesión
-  // de WS; el error que devuelve ese choque se filtra para no alarmar de más
-  // (ver FILTERED_ERROR_SNIPPETS). El ref evita mandarlo dos veces si STOMP
-  // reconecta (o por el doble montaje de efectos de StrictMode en dev).
+  // "unirse" registra la fila en sala_participante Y ata esta conexión STOMP a un usuarioId. Al host,
+  // POST /api/salas ya lo registró, así que su "unirse" choca con una llave duplicada — pero igual hay que
+  // mandarlo para asociar su sesión de WS; ese error se filtra. El ref evita mandarlo dos veces si STOMP reconecta.
   const joinedCodeRef = useRef<string | null>(null);
-
-  const shareLink = sala ? `growlink.app/trivia/unirse/${sala.codigo}` : '';
 
   // Conexión STOMP: una por sala. Se abre al entrar a una sala (crear o unirse) y se cierra al salir.
   useEffect(() => {
@@ -180,54 +206,90 @@ export default function TriviaRoomPage() {
     if (!session) return;
     switch (msg.type) {
       case 'SALA_UPDATE':
-        setParticipants((prev) => mergeParticipantes(prev, msg.participantes, session.usuarioId));
+        setParticipants((prev) => {
+          const siguiente = mergeParticipantes(prev, msg.participantes, session.usuarioId);
+          if (siguiente.length > prev.length && prev.length > 0) sonar('unirse');
+          return siguiente;
+        });
         break;
       case 'PREGUNTA':
-        setPrevPositions(
-          Object.fromEntries([...participantsRef.current].sort((a, b) => b.score - a.score).map((p, i) => [p.id, i]))
-        );
+        // si la pregunta anterior se quedó sin contestar, la racha se corta
+        if (!answeredRef.current && rachaRef.current > 0 && question) {
+          rachaRef.current = 0;
+          setRacha(0);
+        }
+        setPrevPositions(Object.fromEntries([...participantsRef.current].sort((a, b) => b.score - a.score).map((p, i) => [p.id, i])));
         setQuestion(msg);
         setSelected(null);
         setAnswered(false);
         setAnswerResult(null);
         setStarting(false);
         setStage('playing');
+        ultimoTick.current = null;
+        sonar('pregunta');
         break;
       case 'RESPUESTA_REGISTRADA':
         // Llega para cada jugador que responde, no solo para mí — si es de otro, se ignora.
         if (msg.usuarioId !== session.usuarioId) break;
-        setAnswerResult({ correcta: msg.correcta, puntos: msg.puntos });
+        if (msg.correcta) {
+          rachaRef.current += 1;
+          setRacha(rachaRef.current);
+          sonar(rachaRef.current === 3 || rachaRef.current === 5 ? 'racha' : 'correcto');
+        } else {
+          rachaRef.current = 0;
+          setRacha(0);
+          sonar('incorrecto');
+        }
+        setAnswerResult({ correcta: msg.correcta, puntos: msg.puntos, mensaje: msg.correcta ? elegir(FELICITACIONES) : elegir(ANIMOS) });
         break;
       case 'LEADERBOARD':
         setParticipants((prev) => mergeLeaderboard(prev, msg.ranking, session.usuarioId));
         break;
       case 'RESULTADOS_FINALES': {
-        const ranked = msg.ranking
+        const ranked: Finalista[] = msg.ranking
           .map(parseRankingItem)
-          .sort((a, b) => b.score - a.score)
-          .map((r, i) => ({
-            id: String(r.usuarioId),
-            name: r.nombre,
-            score: r.score,
-            streak: 0,
-            lastGain: 0,
-            isHost: i === 0,
-            isCurrentUser: r.usuarioId === session.usuarioId,
-          }));
+          .sort((a, b) => b.score - a.score || b.aciertos - a.aciertos)
+          .map((r) => ({ id: String(r.usuarioId), name: r.nombre, score: r.score, aciertos: r.aciertos, isCurrentUser: r.usuarioId === session.usuarioId }));
+        const ganadores = msg.ganadoresUsuarioIds ?? (msg.ganadorUsuarioId != null ? [msg.ganadorUsuarioId] : []);
         setFinalRanking(ranked);
-        setWinnerId(msg.ganadorUsuarioId);
+        setWinnerIds(ganadores);
+        setEmpate(Boolean(msg.empate) || ganadores.length > 1);
         setStage('result');
+        sonar(ganadores.includes(session.usuarioId) ? 'ganar' : 'terminar');
+        // el acta de la partida ya quedó guardada: de ahí salen la duración total y los demás detalles
+        obtenerPartida(msg.codigo).then(setDetallePartida).catch(() => undefined);
         break;
       }
       case 'ERROR':
-        // Ruido conocido e inofensivo: el "unirse" del host siempre choca con la fila que
-        // ya insertó POST /api/salas (ver el comentario arriba de joinedCodeRef). No se
-        // oculta ningún otro error, solo este.
+        // Ruido conocido e inofensivo: el "unirse" del host choca con la fila que ya insertó POST /api/salas.
         if (!/sala_participante/i.test(msg.message)) setWsErrorMsg(msg.message);
         setStarting(false);
         break;
     }
   }
+
+  // Si alguien aceptó un reto (o se llegó aquí desde la campana), se entra directo a esa sala.
+  useEffect(() => {
+    const entrar = (codigo: string) => {
+      try {
+        sessionStorage.removeItem(CLAVE_UNIRSE_SALA);
+      } catch {
+        // no pasa nada
+      }
+      void unirseAlCodigo(codigo);
+    };
+    let pendiente: string | null = null;
+    try {
+      pendiente = sessionStorage.getItem(CLAVE_UNIRSE_SALA);
+    } catch {
+      pendiente = null;
+    }
+    if (pendiente) entrar(pendiente);
+    const alEvento = (e: Event) => entrar(String((e as CustomEvent).detail));
+    window.addEventListener(EVENTO_UNIRSE_SALA, alEvento);
+    return () => window.removeEventListener(EVENTO_UNIRSE_SALA, alEvento);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cuenta regresiva local de la pregunta: se deriva de enviadaEnEpochMs + duracionSegundos
   // (el servidor es quien manda cuándo se acaba el tiempo, esto solo lo refleja visualmente).
@@ -237,33 +299,45 @@ export default function TriviaRoomPage() {
     return () => clearInterval(id);
   }, [question?.indice]);
 
-  if (!currentUser || !session) return null;
-
   const elapsedSec = question ? (now - question.enviadaEnEpochMs) / 1000 : 0;
   const secondsLeft = question ? Math.max(0, Math.ceil(question.duracionSegundos - elapsedSec)) : 0;
   const timerFraction = question && question.duracionSegundos > 0 ? Math.max(0, Math.min(1, secondsLeft / question.duracionSegundos)) : 0;
   const timeUp = question !== null && secondsLeft <= 0;
 
+  // tic-tac en los últimos 3 segundos, solo para quien todavía no ha respondido
+  useEffect(() => {
+    if (stage !== 'playing' || !question || answered) return;
+    if (secondsLeft > 0 && secondsLeft <= 3 && ultimoTick.current !== secondsLeft) {
+      ultimoTick.current = secondsLeft;
+      sonar('tick');
+    }
+  }, [secondsLeft, stage, question, answered]);
+
+  if (!currentUser || !session) return null;
+
+  function prepararComoHost(nueva: Sala) {
+    joinedCodeRef.current = null;
+    // POST /api/salas ya registró al host como participante: se agrega de una vez en vez de esperar un SALA_UPDATE
+    setParticipants([{ id: String(session!.usuarioId), name: session!.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
+    setIsHost(true);
+    setSala(nueva);
+    setStage('waiting');
+  }
+
   async function handleCreate() {
-    if (!createCategory || !session) return;
+    if (!config.categoria || !session) return;
     setCreating(true);
     setCreateError(null);
     try {
-      const nuevaSala = await crearSala({
-        categoria: createCategory,
+      const nueva = await crearSala({
+        categoria: config.categoria,
         hostUsuarioId: session.usuarioId,
         hostNombre: session.nombre,
-        numPreguntas: numQuestions,
-        duracionSegundos: secondsPerQuestion,
+        numPreguntas: config.numPreguntas,
+        duracionSegundos: config.duracionSegundos,
       });
-      // POST /api/salas ya nos registró como participante en el backend (no mandamos
-      // "unirse" por WS para el host — ver el comentario en el efecto de conexión),
-      // así que nos agregamos de una vez localmente en vez de esperar un SALA_UPDATE
-      // que nadie va a disparar hasta que llegue el primer invitado.
-      setParticipants([{ id: String(session.usuarioId), name: session.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
-      setIsHost(true);
-      setSala(nuevaSala);
-      setStage('waiting');
+      setRetoActual(null);
+      prepararComoHost(nueva);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'No se pudo crear la sala.');
     } finally {
@@ -271,8 +345,16 @@ export default function TriviaRoomPage() {
     }
   }
 
-  async function handleJoinSubmit() {
-    const codigo = joinCode.trim().toUpperCase();
+  // quien retó: la sala ya existe (la creó el reto), solo hay que entrar a esperar
+  async function alRetoEnviado(reto: Reto) {
+    const encontrada = await obtenerSala(reto.codigoSala).catch(() => null);
+    if (!encontrada) return;
+    setRetoActual(reto);
+    prepararComoHost(encontrada);
+  }
+
+  async function unirseAlCodigo(codigoCrudo: string) {
+    const codigo = codigoCrudo.trim().toUpperCase();
     if (!codigo) return;
     setJoining(true);
     setJoinError(null);
@@ -280,14 +362,23 @@ export default function TriviaRoomPage() {
       const encontrada = await obtenerSala(codigo);
       if (!encontrada) {
         setJoinError('No encontramos una sala con ese código.');
+        setStage('join');
         return;
       }
+      if (encontrada.estado !== 'ESPERANDO') {
+        setJoinError('Esa sala ya empezó o terminó.');
+        setStage('join');
+        return;
+      }
+      joinedCodeRef.current = null;
       setParticipants([]);
       setIsHost(false);
+      setRetoActual(null);
       setSala(encontrada);
       setStage('waiting');
     } catch (err) {
       setJoinError(err instanceof Error ? err.message : 'No se pudo buscar la sala.');
+      setStage('join');
     } finally {
       setJoining(false);
     }
@@ -296,26 +387,26 @@ export default function TriviaRoomPage() {
   function startGame() {
     setStarting(true);
     setWsErrorMsg(null);
+    rachaRef.current = 0;
+    setRacha(0);
     socketRef.current?.iniciar();
   }
 
   function handleAnswer(idx: number) {
-    if (answered || !question || !session) return;
+    if (answered || timeUp || !question || !session) return;
     setSelected(idx);
     setAnswered(true);
     socketRef.current?.responder(session.usuarioId, question.indice, idx);
   }
 
-  function rankedParticipants() {
-    return [...participants].sort((a, b) => b.score - a.score);
-  }
-
-  function resetAll() {
+  function resetAll(destino: PestanaLobby = 'jugar') {
     joinedCodeRef.current = null;
     setStage('lobby');
+    setPestana(destino);
     setIsHost(false);
     setSala(null);
-    setCreateCategory('');
+    setRetoActual(null);
+    setConfig(CONFIG_INICIAL);
     setCreateError(null);
     setJoinCode('');
     setJoinError(null);
@@ -327,157 +418,122 @@ export default function TriviaRoomPage() {
     setSelected(null);
     setAnswered(false);
     setAnswerResult(null);
+    setRacha(0);
+    rachaRef.current = 0;
     setFinalRanking([]);
-    setWinnerId(null);
+    setWinnerIds([]);
+    setEmpate(false);
+    setDetallePartida(null);
   }
 
-  const ranked = rankedParticipants();
+  function alternarSonido() {
+    silenciar(!silencio);
+    setSilencio(!silencio);
+  }
+
+  const ranked = [...participants].sort((a, b) => b.score - a.score);
   const miParticipante = ranked.find((p) => p.isCurrentUser);
-  const timerColor = timerFraction < 0.25 ? '#EF4444' : timerFraction < 0.5 ? '#F59E0B' : '#12C2A8';
+  const timerColor = timerFraction < 0.25 ? '#F2704E' : timerFraction < 0.5 ? '#F5A524' : '#12C2A8';
+
+  const botonSonido = (
+    <button
+      type="button"
+      onClick={alternarSonido}
+      aria-label={silencio ? 'Activar sonido' : 'Silenciar sonido'}
+      title={silencio ? 'Activar sonido' : 'Silenciar sonido'}
+      className="w-9 h-9 rounded-full border border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F] flex items-center justify-center text-base hover:border-[#12C2A8] cursor-pointer"
+    >
+      {silencio ? '🔇' : '🔊'}
+    </button>
+  );
 
   // ─── LOBBY ──────────────────────────────────────────────────
   if (stage === 'lobby') {
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
-        <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-12">
-          <div className="max-w-2xl w-full">
-            <div className="text-center mb-12">
+        <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-8 py-8 sm:py-12">
+          <div className="flex items-start justify-between gap-3 mb-6">
+            <div>
               <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Modo competitivo</span>
-              <h1 className="text-4xl sm:text-5xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-3 mb-4">Trivia por salas</h1>
-              <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-lg max-w-md mx-auto leading-relaxed">
-                Crea una sala o únete con un código y compite en tiempo real contra otros usuarios.
-              </p>
+              <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">Trivia en vivo</h1>
+              <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1.5 max-w-md">Compite en tiempo real, reta a alguien en particular y mira quién manda en el salón de la fama.</p>
             </div>
+            {botonSonido}
+          </div>
 
+          <HorizontalTabs tabs={PESTANAS} active={pestana} onChange={(k) => setPestana(k as PestanaLobby)} className="mb-6" />
+
+          {pestana === 'jugar' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <button
                 onClick={() => setStage('create')}
-                className="gl-card-hover relative p-6 sm:p-8 rounded-2xl border-2 border-[#DDE4ED] dark:border-[#1C3254] hover:border-[#12C2A8] bg-white dark:bg-[#0F2240] text-left cursor-pointer transition-colors group overflow-hidden"
+                className="gl-card-hover relative p-6 sm:p-7 rounded-2xl border-2 border-[#E1E6DF] dark:border-[#27403A] hover:border-[#12C2A8] bg-white dark:bg-[#15231F] text-left cursor-pointer transition-colors group overflow-hidden"
               >
-                <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-[#12C2A8] opacity-5 blur-2xl translate-x-1/2 -translate-y-1/2 group-hover:opacity-10 transition-opacity" />
-                <div className="w-12 h-12 rounded-xl bg-[#12C2A8]/10 dark:bg-[#12C2A8]/20 border border-[#12C2A8]/30 flex items-center justify-center mb-5 relative z-10">
-                  <svg className="w-6 h-6 text-[#12C2A8]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2 relative z-10 group-hover:text-[#12C2A8] transition-colors">Crear sala</h2>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm leading-relaxed relative z-10">Elige categoría, número de preguntas y tiempo. Comparte el código y espera a que lleguen.</p>
-                <div className="mt-5 relative z-10">
-                  <span className="text-xs text-[#12C2A8] font-semibold border border-[#12C2A8]/30 px-2 py-0.5 rounded-md">Ser anfitrión</span>
-                </div>
+                <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-[#12C2A8] opacity-5 blur-2xl translate-x-1/2 -translate-y-1/2 group-hover:opacity-15 transition-opacity" />
+                <div className="w-12 h-12 rounded-xl bg-[#12C2A8]/10 border border-[#12C2A8]/30 flex items-center justify-center mb-5 relative z-10 text-2xl">🎯</div>
+                <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2 relative z-10 group-hover:text-[#0E8A7D] transition-colors">Crear sala</h2>
+                <p className="text-[#6B7A74] dark:text-[#98B0A6] text-sm leading-relaxed relative z-10">Elige categoría, preguntas y tiempo. Comparte el código y espera a que lleguen.</p>
               </button>
-
               <button
                 onClick={() => setStage('join')}
-                className="gl-card-hover relative p-6 sm:p-8 rounded-2xl border-2 border-[#DDE4ED] dark:border-[#1C3254] hover:border-[#1E73E8] bg-white dark:bg-[#0F2240] text-left cursor-pointer transition-colors group overflow-hidden"
+                className="gl-card-hover relative p-6 sm:p-7 rounded-2xl border-2 border-[#E1E6DF] dark:border-[#27403A] hover:border-[#F2704E] bg-white dark:bg-[#15231F] text-left cursor-pointer transition-colors group overflow-hidden"
               >
-                <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-[#1E73E8] opacity-5 blur-2xl translate-x-1/2 -translate-y-1/2 group-hover:opacity-10 transition-opacity" />
-                <div className="w-12 h-12 rounded-xl bg-[#1E73E8]/10 dark:bg-[#1E73E8]/20 border border-[#1E73E8]/30 flex items-center justify-center mb-5 relative z-10">
-                  <svg className="w-6 h-6 text-[#1E73E8]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2 relative z-10 group-hover:text-[#1E73E8] transition-colors">Unirse a una sala</h2>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm leading-relaxed relative z-10">Entra con el código de 6 letras que te compartió el anfitrión.</p>
-                <div className="mt-5 relative z-10">
-                  <span className="text-xs text-[#1E73E8] font-semibold border border-[#1E73E8]/30 px-2 py-0.5 rounded-md">Jugador</span>
-                </div>
+                <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-[#F2704E] opacity-5 blur-2xl translate-x-1/2 -translate-y-1/2 group-hover:opacity-15 transition-opacity" />
+                <div className="w-12 h-12 rounded-xl bg-[#F2704E]/10 border border-[#F2704E]/30 flex items-center justify-center mb-5 relative z-10 text-2xl">🚪</div>
+                <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2 relative z-10 group-hover:text-[#F2704E] transition-colors">Unirse con un código</h2>
+                <p className="text-[#6B7A74] dark:text-[#98B0A6] text-sm leading-relaxed relative z-10">Entra con el código de 6 letras que te compartió quien creó la sala.</p>
+              </button>
+              <button
+                onClick={() => setPestana('retar')}
+                className="gl-card-hover sm:col-span-2 relative p-5 rounded-2xl border-2 border-dashed border-[#E1E6DF] dark:border-[#27403A] hover:border-[#F5A524] bg-white/60 dark:bg-[#15231F]/60 text-left cursor-pointer transition-colors flex items-center gap-4"
+              >
+                <span className="text-3xl">⚔️</span>
+                <span>
+                  <span className="block font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">¿Quieres un duelo? Reta a alguien</span>
+                  <span className="block text-sm text-[#6B7A74] dark:text-[#98B0A6]">Busca a una persona, mándale un «te reto a una trivia» y esperen juntos en la sala.</span>
+                </span>
               </button>
             </div>
-          </div>
-        </div>
+          )}
+
+          {pestana === 'retar' && (
+            <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl p-5 sm:p-7">
+              <RetarPanel onRetoEnviado={alRetoEnviado} personaInicial={personaRevancha} />
+            </div>
+          )}
+
+          {pestana === 'ganadores' && <GanadoresPanel />}
+        </main>
       </div>
     );
   }
 
   // ─── CREATE ─────────────────────────────────────────────────
   if (stage === 'create') {
-    const canCreate = createCategory !== '' && !creating;
+    const canCreate = config.categoria !== '' && !creating;
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
-        <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-12">
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
           <div className="max-w-xl w-full">
-            <button onClick={() => setStage('lobby')} className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] cursor-pointer mb-8 transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Volver
+            <button onClick={() => setStage('lobby')} className="flex items-center gap-2 text-sm text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9] cursor-pointer mb-6 transition-colors">
+              ← Volver
             </button>
-
-            <div className="mb-8">
+            <div className="mb-6">
               <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Anfitrión</span>
-              <h2 className="text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2 mb-1">Configurar sala</h2>
-              <p className="text-[#6B7A99] dark:text-[#8BA5C2]">Define las reglas antes de invitar a los demás.</p>
+              <h2 className="text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2 mb-1">Configurar sala</h2>
+              <p className="text-[#6B7A74] dark:text-[#98B0A6]">Define las reglas antes de invitar a los demás.</p>
             </div>
-
             <div className="space-y-6">
-              <div>
-                <label className="block text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider mb-3">Categoría</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {CATEGORIES.map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setCreateCategory(cat)}
-                      className={`px-4 py-3 rounded-xl border text-sm font-medium text-left transition-all cursor-pointer ${
-                        createCategory === cat
-                          ? 'border-[#12C2A8] bg-[#12C2A8]/10 text-[#12C2A8]'
-                          : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] hover:border-[#1E73E8]/40'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider mb-3">Número de preguntas</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {QUESTION_COUNTS.map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setNumQuestions(n)}
-                      className={`py-3 rounded-xl border text-sm font-bold transition-all cursor-pointer ${
-                        numQuestions === n
-                          ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
-                          : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] hover:border-[#1E73E8]/40'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider mb-3">Duración por pregunta</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {SECONDS_OPTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSecondsPerQuestion(s)}
-                      className={`py-3 rounded-xl border text-sm font-bold transition-all cursor-pointer ${
-                        secondsPerQuestion === s
-                          ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
-                          : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] hover:border-[#1E73E8]/40'
-                      }`}
-                    >
-                      {s}s
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {createError && <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{createError}</p>}
-
+              <ConfigPartidaForm valor={config} onChange={setConfig} />
+              {createError && <p role="alert" className="text-sm text-[#DC2626] dark:text-[#F87171]">{createError}</p>}
               <Button variant="gradient" size="lg" className="w-full" disabled={!canCreate} onClick={handleCreate}>
-                {creating ? <><Spinner /> Creando sala...</> : 'Crear sala y esperar jugadores'}
+                {creating ? <><Spinner /> Creando sala…</> : 'Crear sala y esperar jugadores'}
               </Button>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -485,129 +541,109 @@ export default function TriviaRoomPage() {
   // ─── JOIN ────────────────────────────────────────────────────
   if (stage === 'join') {
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
-        <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-12">
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
           <div className="max-w-md w-full">
-            <button onClick={() => setStage('lobby')} className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] hover:text-[#0B1F3A] dark:hover:text-[#E2EBF6] cursor-pointer mb-8 transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Volver
+            <button onClick={() => { setJoinError(null); setStage('lobby'); }} className="flex items-center gap-2 text-sm text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9] cursor-pointer mb-6 transition-colors">
+              ← Volver
             </button>
-
-            <div className="mb-8">
-              <span className="text-[#1E73E8] text-xs font-mono font-semibold tracking-widest uppercase">Unirse</span>
-              <h2 className="text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2 mb-1">Ingresa el código</h2>
-              <p className="text-[#6B7A99] dark:text-[#8BA5C2]">El código de 6 letras te lo comparte quien creó la sala.</p>
+            <div className="mb-6">
+              <span className="text-[#F2704E] text-xs font-mono font-semibold tracking-widest uppercase">Unirse</span>
+              <h2 className="text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2 mb-1">Ingresa el código</h2>
+              <p className="text-[#6B7A74] dark:text-[#98B0A6]">El código de 6 letras te lo comparte quien creó la sala.</p>
             </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleJoinSubmit();
-              }}
-              className="space-y-4"
-            >
+            <form onSubmit={(e) => { e.preventDefault(); void unirseAlCodigo(joinCode); }} className="space-y-4">
               <input
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
                 placeholder="GL7X9K"
                 autoFocus
-                className="w-full text-center tracking-[0.5em] uppercase font-mono font-bold text-2xl px-4 py-4 border-2 border-[#DDE4ED] dark:border-[#1C3254] rounded-xl bg-white dark:bg-[#0F2240] text-[#0B1F3A] dark:text-[#E2EBF6] placeholder:text-[#DDE4ED] dark:placeholder:text-[#1C3254] focus:outline-none focus:border-[#1E73E8] transition-all"
+                aria-label="Código de la sala"
+                className="w-full text-center tracking-[0.5em] uppercase font-mono font-bold text-2xl px-4 py-4 border-2 border-[#E1E6DF] dark:border-[#27403A] rounded-xl bg-white dark:bg-[#15231F] text-[#1F2D2A] dark:text-[#E6EFE9] placeholder:text-[#E1E6DF] dark:placeholder:text-[#27403A] focus:outline-none focus:border-[#0E8A7D] transition-all"
               />
-              {joinError && <p className="text-sm text-[#DC2626] dark:text-[#F87171] text-center">{joinError}</p>}
+              {joinError && <p role="alert" className="text-sm text-[#DC2626] dark:text-[#F87171] text-center">{joinError}</p>}
               <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={joinCode.trim().length === 0 || joining}>
-                {joining ? <><Spinner /> Buscando sala...</> : 'Unirme a la sala'}
+                {joining ? <><Spinner /> Buscando sala…</> : 'Unirme a la sala'}
               </Button>
             </form>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
 
   // ─── WAITING ROOM ────────────────────────────────────────────
   if (stage === 'waiting') {
+    const esperandoA = retoActual && participants.length < 2 ? retoActual.retadoNombre : null;
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
-        <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-12">
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
           <div className="max-w-lg w-full">
-            <div className="text-center mb-8">
+            <div className="text-center mb-7">
               <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Sala de espera</span>
-              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-3 mb-3">{sala?.categoria}</h2>
+              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-3 mb-3">{sala?.categoria}</h2>
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <span className="text-xs font-bold px-3 py-1 rounded-full border text-[#12C2A8] border-[#12C2A8]/40 bg-[#12C2A8]/10">
+                <span className="text-xs font-bold px-3 py-1 rounded-full border text-[#0B6F65] dark:text-[#5FD3C2] border-[#12C2A8]/40 bg-[#12C2A8]/10">
                   {sala?.numPreguntas} preguntas · {sala?.duracionSegundos}s c/u
                 </span>
-                <div className="flex items-center gap-2 bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-full px-3 py-1">
-                  <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2]">Código:</span>
-                  <span className="text-xs font-mono font-bold text-[#0B1F3A] dark:text-[#E2EBF6] tracking-widest">{sala?.codigo}</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard?.writeText(sala?.codigo ?? '').catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1800); }}
+                  className="flex items-center gap-2 bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-full px-3 py-1 cursor-pointer hover:border-[#12C2A8]"
+                  title="Copiar código"
+                >
+                  <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">{copied ? 'Copiado ✓' : 'Código:'}</span>
+                  <span className="text-xs font-mono font-bold text-[#1F2D2A] dark:text-[#E6EFE9] tracking-widest">{sala?.codigo}</span>
+                </button>
                 {!wsConnected && (
                   <span className="flex items-center gap-1.5 text-xs font-mono text-[#B45309] dark:text-[#FBBF24]">
-                    <Spinner className="w-3.5 h-3.5" /> Conectando...
+                    <Spinner className="w-3.5 h-3.5" /> Conectando…
                   </span>
                 )}
+                {botonSonido}
               </div>
-              {isHost && (
-                <button
-                  onClick={() => { navigator.clipboard?.writeText(shareLink).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1800); }}
-                  className="mt-3 inline-flex items-center gap-2 text-xs text-[#1E73E8] font-semibold hover:underline cursor-pointer font-mono"
-                >
-                  {copied ? 'Enlace copiado' : shareLink}
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </button>
+              {retoActual && (
+                <p className="mt-3 text-sm text-[#6B7A74] dark:text-[#98B0A6]">
+                  {esperandoA ? <>⚔️ Esperando a <strong className="text-[#1F2D2A] dark:text-[#E6EFE9]">{esperandoA}</strong> (tiene 5 minutos para aceptar tu reto)</> : '⚔️ ¡Tu retado ya llegó!'}
+                </p>
               )}
             </div>
 
             {wsErrorMsg && (
-              <div className="mb-5 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+              <div role="alert" className="mb-5 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
                 <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
               </div>
             )}
 
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl overflow-hidden mb-6">
-              <div className="px-5 py-3.5 border-b border-[#DDE4ED] dark:border-[#1C3254] flex items-center justify-between">
-                <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">Participantes</p>
+            <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden mb-6">
+              <div className="px-5 py-3.5 border-b border-[#E1E6DF] dark:border-[#27403A] flex items-center justify-between">
+                <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">Participantes</p>
                 <div className="flex items-center gap-2">
                   <LiveIndicator label="" color="green" />
-                  <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono">{participants.length}</span>
+                  <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-mono">{participants.length}</span>
                 </div>
               </div>
               <div className="p-4 space-y-2.5">
                 {participants.map((p) => (
-                  <div key={p.id} className={`gl-pop-in flex items-center gap-3 px-4 py-3 rounded-xl ${
-                    p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/20' : 'bg-[#F7F9FA] dark:bg-[#132A47] border border-[#EEF2F6] dark:border-[#1C3254]'
-                  }`}>
+                  <div key={p.id} className={`gl-pop-in flex items-center gap-3 px-4 py-3 rounded-xl ${p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/20' : 'bg-[#F6F7F2] dark:bg-[#1A2C27] border border-[#EDF1EA] dark:border-[#27403A]'}`}>
                     <div className="relative w-8 h-8 rounded-full gl-gradient flex items-center justify-center text-white text-sm font-bold shrink-0">
                       {p.name[0]}
-                      <span className="gl-status-dot bg-[#4CE07E] live-pulse absolute -bottom-0.5 -right-0.5 border-2 border-white dark:border-[#0F2240]" />
+                      <span className="gl-status-dot bg-[#4CE07E] live-pulse absolute -bottom-0.5 -right-0.5 border-2 border-white dark:border-[#15231F]" />
                     </div>
-                    <span className={`text-sm font-semibold ${p.isCurrentUser ? 'text-[#12C2A8]' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>
-                      {p.name}{p.isCurrentUser && <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-normal ml-2">(tú)</span>}
+                    <span className={`text-sm font-semibold ${p.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>
+                      {p.name}{p.isCurrentUser && <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-normal ml-2">(tú)</span>}
                     </span>
-                    <span className="text-[10px] font-mono text-[#15803D] dark:text-[#4CE07E] font-semibold">Conectado</span>
-                    {p.isHost && (
-                      <span className="ml-auto text-xs text-[#F59E0B] font-semibold border border-[#F59E0B]/30 px-2 py-0.5 rounded-md">Anfitrión</span>
-                    )}
+                    {p.isHost && <span className="ml-auto text-xs text-[#B45309] dark:text-[#FBBF24] font-semibold border border-[#F5A524]/40 px-2 py-0.5 rounded-md">Anfitrión</span>}
                   </div>
                 ))}
-                {participants.length === 0 && (
-                  <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] text-center py-2">Conectando a la sala...</p>
-                )}
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-[#DDE4ED] dark:border-[#1C3254]">
-                  <div className="w-8 h-8 rounded-full border border-dashed border-[#DDE4ED] dark:border-[#1C3254] flex items-center justify-center">
-                    <svg className="w-4 h-4 text-[#6B7A99]/50 dark:text-[#8BA5C2]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                  <span className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Esperando más jugadores...</span>
+                {participants.length === 0 && <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] text-center py-2">Conectando a la sala…</p>}
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-[#E1E6DF] dark:border-[#27403A]">
+                  <div className="w-8 h-8 rounded-full border border-dashed border-[#E1E6DF] dark:border-[#27403A]" />
+                  <span className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Esperando más jugadores…</span>
                   <span className="ml-auto flex gap-1">
-                    {[0, 1, 2].map((d) => <span key={d} className="w-1.5 h-1.5 rounded-full bg-[#DDE4ED] dark:bg-[#1C3254] animate-pulse" style={{ animationDelay: `${d * 0.2}s` }} />)}
+                    {[0, 1, 2].map((d) => <span key={d} className="w-1.5 h-1.5 rounded-full bg-[#12C2A8]/60 animate-pulse" style={{ animationDelay: `${d * 0.2}s` }} />)}
                   </span>
                 </div>
               </div>
@@ -616,25 +652,26 @@ export default function TriviaRoomPage() {
             {starting ? (
               <div className="text-center mb-4">
                 <div className="flex justify-center text-[#12C2A8] mb-2"><Spinner className="w-6 h-6" /></div>
-                <p className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm font-mono">Iniciando sala...</p>
+                <p className="text-[#6B7A74] dark:text-[#98B0A6] text-sm font-mono">Iniciando sala…</p>
               </div>
             ) : isHost ? (
               <div className="space-y-3">
                 <Button variant="gradient" size="lg" className="w-full" disabled={participants.length < 2 || !wsConnected} onClick={startGame}>
-                  Iniciar sala ahora
+                  ¡Empezar la trivia!
                 </Button>
-                {participants.length < 2 && (
-                  <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] text-center font-mono">Se necesita al menos 1 jugador más para iniciar.</p>
-                )}
+                {participants.length < 2 && <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] text-center font-mono">Se necesita al menos 1 jugador más para empezar.</p>}
+                <div className="text-center">
+                  <Button variant="ghost" size="sm" onClick={() => resetAll()}>Cancelar sala</Button>
+                </div>
               </div>
             ) : (
               <div className="text-center">
-                <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">El anfitrión iniciará la sala cuando todos estén listos.</p>
-                <Button variant="secondary" className="mt-4" onClick={resetAll}>Salir de la sala</Button>
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">El anfitrión empezará la trivia cuando todos estén listos.</p>
+                <Button variant="secondary" className="mt-4" onClick={() => resetAll()}>Salir de la sala</Button>
               </div>
             )}
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -645,54 +682,88 @@ export default function TriviaRoomPage() {
     const rest = finalRanking.slice(3);
     const heightFor = (i: number) => (i === 0 ? 'h-40' : i === 1 ? 'h-28' : 'h-20');
     const orderFor = (i: number) => (i === 0 ? 'order-2' : i === 1 ? 'order-1' : 'order-3');
-    const colorFor = (i: number) => (i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : '#CD7C2F');
+    const colorFor = (i: number) => (i === 0 ? '#F5A524' : i === 1 ? '#94A3B8' : '#CD7C2F');
     const myRank = finalRanking.findIndex((p) => p.isCurrentUser) + 1;
-    const amIWinner = winnerId !== null && winnerId === session.usuarioId;
+    const amIWinner = winnerIds.includes(session.usuarioId);
+    const total = finalRanking.length;
+    const ganadoresNombres = finalRanking.filter((p) => winnerIds.includes(Number(p.id))).map((p) => p.name);
+    const rival = total === 2 ? finalRanking.find((p) => !p.isCurrentUser) : undefined;
+    const numPreguntas = sala?.numPreguntas ?? detallePartida?.partida.numPreguntas ?? 0;
+
+    const titulo = amIWinner
+      ? empate ? '¡Empataste en lo más alto!' : '¡Ganaste la trivia! 🏆'
+      : myRank === 2 ? '¡Segundo lugar, qué buen nivel!' : myRank === 3 ? '¡En el podio! Tercer lugar' : myRank > 0 ? `Terminaste en el puesto #${myRank}` : 'Trivia finalizada';
+    const subtitulo =
+      winnerIds.length === 0
+        ? 'Nadie sumó puntos esta vez. ¡La revancha es tuya!'
+        : amIWinner
+          ? empate ? `Compartes la victoria con ${ganadoresNombres.filter((n) => n !== session.nombre).join(' y ')}.` : 'Tu victoria quedó registrada en tu perfil y en el salón de la fama.'
+          : empate ? `Ganaron ${ganadoresNombres.join(' y ')}, empatados.` : `Ganó ${ganadoresNombres[0]}. ¡Felicitaciones!`;
 
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-          <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase mb-2">Sala finalizada</span>
-          <h2 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-8 text-center">
-            {amIWinner ? '¡Ganaste la sala!' : myRank > 0 ? `Terminaste en el puesto #${myRank}` : 'Sala finalizada'}
-          </h2>
+        {(amIWinner || total > 0) && <Confetti piezas={amIWinner ? 70 : 24} />}
+        <main className="flex-1 flex flex-col items-center px-4 py-10">
+          <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase mb-2">Trivia finalizada · {sala?.categoria}</span>
+          <h2 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2 text-center">{titulo}</h2>
+          <p className="text-[#6B7A74] dark:text-[#98B0A6] mb-8 text-center max-w-md">{subtitulo}</p>
 
-          <div className="flex items-end justify-center gap-4 mb-10 w-full max-w-lg">
+          <div className="flex items-end justify-center gap-3 sm:gap-4 mb-10 w-full max-w-lg">
             {podium.map((p, i) => (
               <div key={p.id} className={`flex flex-col items-center flex-1 ${orderFor(i)} gl-pop-in`} style={{ animationDelay: `${i * 0.15}s` }}>
+                {winnerIds.includes(Number(p.id)) && <span className="text-2xl -mb-1">👑</span>}
                 <div className="w-11 h-11 rounded-full gl-gradient flex items-center justify-center text-white font-bold mb-2">{p.name[0]}</div>
-                <p className={`text-sm font-semibold mb-2 text-center truncate max-w-[6.5rem] ${p.isCurrentUser ? 'text-[#12C2A8]' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>{p.name}</p>
-                <div
-                  className={`w-full ${heightFor(i)} rounded-t-xl flex flex-col items-center justify-start pt-3 gap-1`}
-                  style={{ background: `linear-gradient(180deg, ${colorFor(i)}, #0B1F3A)` }}
-                >
+                <p className={`text-sm font-semibold mb-2 text-center truncate max-w-[6.5rem] ${p.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>{p.name}</p>
+                <div className={`w-full ${heightFor(i)} rounded-t-xl flex flex-col items-center justify-start pt-3 gap-1`} style={{ background: `linear-gradient(180deg, ${colorFor(i)}, #1F2D2A)` }}>
                   <span className="text-white font-display font-bold text-xl">{i + 1}</span>
-                  <span className="text-white/80 text-xs font-mono">{p.score.toLocaleString()}</span>
+                  <span className="text-white/90 text-xs font-mono">{p.score.toLocaleString()} pts</span>
+                  <span className="text-white/70 text-[11px]">{p.aciertos}/{numPreguntas}</span>
                 </div>
               </div>
             ))}
           </div>
 
           {rest.length > 0 && (
-            <div className="w-full max-w-md space-y-2 mb-10">
+            <div className="w-full max-w-md space-y-2 mb-8">
               {rest.map((p, i) => (
-                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl ${p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254]'}`}>
-                  <span className="text-sm font-mono font-bold text-[#6B7A99] dark:text-[#8BA5C2] w-5">{i + 4}</span>
-                  <span className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] flex-1">{p.name}</span>
-                  <span className="font-mono font-bold text-sm text-[#0B1F3A] dark:text-[#E2EBF6]">{p.score.toLocaleString()}</span>
+                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl ${p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]'}`}>
+                  <span className="text-sm font-mono font-bold text-[#6B7A74] dark:text-[#98B0A6] w-5">{i + 4}</span>
+                  <span className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] flex-1">{p.name}</span>
+                  <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">{p.aciertos}/{numPreguntas}</span>
+                  <span className="font-mono font-bold text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">{p.score.toLocaleString()}</span>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="gradient" size="lg" onClick={resetAll}>Jugar de nuevo</Button>
-            <Button variant="secondary" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>
-              Salir
-            </Button>
+          {detallePartida && (
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-lg mb-8 text-center">
+              {[
+                { v: String(detallePartida.partida.totalJugadores), l: 'jugadores' },
+                { v: String(detallePartida.partida.numPreguntas), l: 'preguntas' },
+                { v: `${detallePartida.partida.duracionPreguntaSegundos}s`, l: 'por pregunta' },
+                { v: `${Math.floor(detallePartida.partida.duracionTotalSegundos / 60)}:${String(detallePartida.partida.duracionTotalSegundos % 60).padStart(2, '0')}`, l: 'duración total' },
+              ].map((d) => (
+                <div key={d.l} className="rounded-xl bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] py-3">
+                  <dd className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">{d.v}</dd>
+                  <dt className="text-[11px] text-[#6B7A74] dark:text-[#98B0A6]">{d.l}</dt>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3">
+            {rival && (
+              <Button variant="gradient" size="lg" onClick={() => { setPersonaRevancha({ id: Number(rival.id), nombre: rival.name }); resetAll('retar'); }}>
+                ⚔️ Revancha con {rival.name.split(' ')[0]}
+              </Button>
+            )}
+            <Button variant={rival ? 'secondary' : 'gradient'} size="lg" onClick={() => resetAll('jugar')}>Jugar otra vez</Button>
+            <Button variant="secondary" size="lg" onClick={() => resetAll('ganadores')}>Ver ganadores</Button>
+            <Button variant="ghost" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>Salir</Button>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -700,12 +771,12 @@ export default function TriviaRoomPage() {
   // ─── PLAYING ────────────────────────────────────────────────
   if (!question) {
     return (
-      <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+      <div className={pagina}>
         <Navbar />
         <div className="flex-1 flex items-center justify-center px-4 text-center">
-          <div className="flex flex-col items-center gap-3 text-[#6B7A99] dark:text-[#8BA5C2]">
+          <div className="flex flex-col items-center gap-3 text-[#6B7A74] dark:text-[#98B0A6]">
             <Spinner className="w-6 h-6" />
-            <p>Esperando la primera pregunta...</p>
+            <p>Esperando la primera pregunta…</p>
           </div>
         </div>
       </div>
@@ -713,90 +784,79 @@ export default function TriviaRoomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629] flex flex-col">
+    <div className={pagina}>
       <Navbar />
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-8 py-6 sm:py-8 flex-1 flex flex-col w-full">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+      <main className="max-w-[1200px] mx-auto px-4 sm:px-8 py-5 sm:py-8 flex-1 flex flex-col w-full">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
           <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-            <LiveIndicator label="SALA EN VIVO" color="teal" size="md" />
-            <span className="text-[#6B7A99] dark:text-[#8BA5C2] text-sm font-mono">{participants.length} jugadores</span>
-            <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono border border-[#DDE4ED] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] px-2 py-0.5 rounded-md">{sala?.categoria}</span>
+            <LiveIndicator label="EN VIVO" color="teal" size="md" />
+            <span className="text-[#6B7A74] dark:text-[#98B0A6] text-sm font-mono">{participants.length} jugadores</span>
+            <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6] border border-[#E1E6DF] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27] px-2 py-0.5 rounded-md">{sala?.categoria}</span>
+            {botonSonido}
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-5">
+            {racha >= 2 && <span className="gl-pop-in px-3 py-1 rounded-full bg-[#F5A524]/20 text-[#B45309] dark:text-[#FBBF24] text-sm font-bold">🔥 Racha x{racha}</span>}
             <div className="text-center">
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider">Pregunta</p>
-              <p className="text-[#0B1F3A] dark:text-[#E2EBF6] font-mono font-bold">{question.indice + 1} / {question.totalPreguntas}</p>
+              <p className="text-[11px] text-[#6B7A74] dark:text-[#98B0A6] font-mono uppercase tracking-wider">Pregunta</p>
+              <p className="text-[#1F2D2A] dark:text-[#E6EFE9] font-mono font-bold">{question.indice + 1} / {question.totalPreguntas}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-wider">Tu puntaje</p>
+              <p className="text-[11px] text-[#6B7A74] dark:text-[#98B0A6] font-mono uppercase tracking-wider">Tu puntaje</p>
               <p className="font-mono font-bold text-[#15803D] dark:text-[#4CE07E]">{(miParticipante?.score ?? 0).toLocaleString()}</p>
             </div>
           </div>
         </div>
 
         {wsErrorMsg && (
-          <div className="mb-5 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+          <div role="alert" className="mb-4 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
             <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 flex-1">
+        <div className="flex flex-col lg:flex-row gap-5 lg:gap-8 flex-1">
           <div className="flex-1 flex flex-col">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="relative w-16 h-16 shrink-0">
+            <div className="flex items-center gap-4 mb-6">
+              <div className={`relative w-16 h-16 shrink-0 ${secondsLeft <= 3 && !answered && secondsLeft > 0 ? 'gl-shake' : ''}`} key={secondsLeft <= 3 ? secondsLeft : 'n'}>
                 <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
-                  <circle cx="32" cy="32" r="28" fill="none" className="text-[#EEF2F6] dark:text-[#1C3254]" stroke="currentColor" strokeWidth="4" />
-                  <circle
-                    cx="32" cy="32" r="28" fill="none" stroke={timerColor} strokeWidth="4" strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 28}`}
-                    strokeDashoffset={`${2 * Math.PI * 28 * (1 - timerFraction)}`}
-                    style={{ transition: 'stroke-dashoffset 0.25s linear, stroke 0.3s' }}
-                  />
+                  <circle cx="32" cy="32" r="28" fill="none" className="text-[#EDF1EA] dark:text-[#27403A]" stroke="currentColor" strokeWidth="4" />
+                  <circle cx="32" cy="32" r="28" fill="none" stroke={timerColor} strokeWidth="4" strokeLinecap="round" strokeDasharray={`${2 * Math.PI * 28}`} strokeDashoffset={`${2 * Math.PI * 28 * (1 - timerFraction)}`} style={{ transition: 'stroke-dashoffset 0.25s linear, stroke 0.3s' }} />
                 </svg>
                 <span className="absolute inset-0 flex items-center justify-center font-mono font-bold text-xl" style={{ color: timerColor }}>{secondsLeft}</span>
               </div>
-              <div className="flex-1 h-1 bg-[#EEF2F6] dark:bg-[#1C3254] rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${(question.indice / question.totalPreguntas) * 100}%`, background: 'linear-gradient(90deg, #1E73E8, #12C2A8)' }} />
+              <div className="flex-1 h-1.5 bg-[#EDF1EA] dark:bg-[#27403A] rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700 gl-gradient" style={{ width: `${((question.indice + 1) / question.totalPreguntas) * 100}%` }} />
               </div>
             </div>
 
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 sm:p-8 mb-6">
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono uppercase tracking-widest mb-4">Pregunta {question.indice + 1}</p>
-              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] leading-snug">{question.texto}</h2>
+            <div key={question.indice} className="gl-fade-up bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl p-5 sm:p-8 mb-5">
+              <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-mono uppercase tracking-widest mb-3">Pregunta {question.indice + 1}</p>
+              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] leading-snug">{question.texto}</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
               {question.opciones.map((option, i) => {
-                // Mientras no llega RESPUESTA_REGISTRADA no se sabe si fue correcta — se marca
-                // solo cuál elegiste. En cuanto llega (es casi inmediato), se pinta verde/rojo.
                 const isSelected = answered && i === selected;
                 const locked = answered || timeUp;
-                const stateClasses =
+                const color = COLOR_OPCION[i % COLOR_OPCION.length];
+                const estado =
                   isSelected && answerResult
                     ? answerResult.correcta
-                      ? 'border-[#4CE07E] bg-[#4CE07E]/10 text-[#15803D] dark:text-[#4CE07E]'
-                      : 'border-[#EF4444] bg-[#EF4444]/10 text-[#DC2626] dark:text-[#F87171]'
+                      ? 'border-[#4CE07E] bg-[#4CE07E]/15 text-[#15803D] dark:text-[#4CE07E] scale-[1.02]'
+                      : 'border-[#F2704E] bg-[#F2704E]/10 text-[#C2410C] dark:text-[#FDBA74]'
                     : isSelected
-                      ? 'border-[#1E73E8] bg-[#1E73E8]/10 text-[#1E73E8]'
+                      ? 'border-[#0E8A7D] bg-[#0E8A7D]/10 text-[#0E8A7D] dark:text-[#5FD3C2]'
                       : locked
-                        ? 'border-[#EEF2F6] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] opacity-60'
-                        : 'border-[#DDE4ED] dark:border-[#1C3254] bg-white dark:bg-[#0F2240] hover:bg-[#F7F9FA] dark:hover:bg-[#132A47] hover:border-[#1E73E8]/40 text-[#0B1F3A] dark:text-[#E2EBF6] cursor-pointer';
-                const badgeClasses =
-                  isSelected && answerResult
-                    ? answerResult.correcta
-                      ? 'bg-[#4CE07E]/20 text-[#15803D] dark:text-[#4CE07E]'
-                      : 'bg-[#EF4444]/20 text-[#DC2626] dark:text-[#F87171]'
-                    : isSelected
-                      ? 'bg-[#1E73E8]/20 text-[#1E73E8]'
-                      : 'bg-[#F7F9FA] dark:bg-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2]';
+                        ? 'border-[#EDF1EA] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27] text-[#6B7A74] dark:text-[#98B0A6] opacity-60'
+                        : 'border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F] hover:-translate-y-0.5 hover:shadow-md text-[#1F2D2A] dark:text-[#E6EFE9] cursor-pointer';
                 return (
                   <button
                     key={i}
                     onClick={() => handleAnswer(i)}
                     disabled={locked}
-                    className={`p-5 rounded-2xl border-2 text-left font-semibold transition-all flex items-center gap-4 ${stateClasses}`}
+                    className={`p-4 sm:p-5 rounded-2xl border-2 text-left font-semibold transition-all flex items-center gap-4 ${estado}`}
+                    style={!locked ? { borderLeftColor: color, borderLeftWidth: 6 } : undefined}
                   >
-                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-mono font-bold shrink-0 ${badgeClasses}`}>
+                    <span className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-mono font-bold shrink-0 text-white" style={{ background: locked && !isSelected ? '#98B0A6' : color }}>
                       {['A', 'B', 'C', 'D'][i]}
                     </span>
                     <span className="text-sm leading-snug">{option}</span>
@@ -805,46 +865,38 @@ export default function TriviaRoomPage() {
               })}
             </div>
 
-            {answerResult ? (
-              <p className={`text-center mt-4 font-mono font-bold ${answerResult.correcta ? 'text-[#15803D] dark:text-[#4CE07E]' : 'text-[#DC2626] dark:text-[#F87171]'}`}>
-                {answerResult.correcta ? `¡Correcto! +${answerResult.puntos} puntos` : 'Incorrecto'}
-              </p>
-            ) : answered ? (
-              <p className="text-center mt-4 font-mono font-bold text-[#1E73E8]">Respuesta enviada — esperando resultados...</p>
-            ) : timeUp ? (
-              <p className="text-center mt-4 font-mono font-bold text-[#DC2626] dark:text-[#F87171]">Tiempo agotado</p>
-            ) : null}
+            <div className="min-h-[3.5rem] mt-4 text-center" aria-live="polite">
+              {answerResult ? (
+                <div className="gl-pop-in inline-flex flex-col items-center">
+                  <p className={`text-lg font-display font-bold ${answerResult.correcta ? 'text-[#15803D] dark:text-[#4CE07E]' : 'text-[#C2410C] dark:text-[#FDBA74]'}`}>{answerResult.mensaje}</p>
+                  {answerResult.correcta && <p className="font-mono font-bold text-[#15803D] dark:text-[#4CE07E]">+{answerResult.puntos} puntos</p>}
+                </div>
+              ) : answered ? (
+                <p className="font-mono font-bold text-[#0E8A7D] dark:text-[#5FD3C2]">Respuesta enviada — esperando a los demás…</p>
+              ) : timeUp ? (
+                <p className="font-mono font-bold text-[#C2410C] dark:text-[#FDBA74]">Se acabó el tiempo</p>
+              ) : null}
+            </div>
           </div>
 
-          {/* Leaderboard */}
           <div className="w-full lg:w-72 shrink-0">
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl overflow-hidden h-80 lg:h-full flex flex-col">
-              <div className="p-4 border-b border-[#DDE4ED] dark:border-[#1C3254] flex items-center justify-between">
-                <p className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">Leaderboard</p>
+            <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden h-72 lg:h-full flex flex-col">
+              <div className="p-4 border-b border-[#E1E6DF] dark:border-[#27403A] flex items-center justify-between">
+                <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">Marcador</p>
                 <LiveIndicator label="VIVO" color="green" />
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {ranked.map((player, i) => {
                   const delta = prevPositions[player.id] !== undefined ? prevPositions[player.id] - i : 0;
                   return (
-                    <div
-                      key={player.id}
-                      className={`gl-card-hover flex items-center gap-3 p-3 rounded-xl transition-all ${
-                        player.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-[#F7F9FA] dark:bg-[#132A47] border border-[#EEF2F6] dark:border-[#1C3254]'
-                      } ${delta !== 0 ? 'gl-pop-in' : ''}`}
-                    >
-                      <span className={`text-sm font-mono font-bold w-5 text-center shrink-0 ${i === 0 ? 'text-[#B45309] dark:text-[#F59E0B]' : i === 1 ? 'text-[#64748B] dark:text-[#94A3B8]' : i === 2 ? 'text-[#9A5A24] dark:text-[#CD7C2F]' : 'text-[#6B7A99] dark:text-[#8BA5C2]'}`}>
-                        {i + 1}
-                      </span>
-                      <div className="relative w-7 h-7 rounded-lg gl-gradient flex items-center justify-center text-white text-xs font-bold shrink-0">
-                        {player.name[0]}
-                        <span className="gl-status-dot bg-[#4CE07E] absolute -bottom-0.5 -right-0.5 border-2 border-white dark:border-[#0F2240]" />
-                      </div>
+                    <div key={player.id} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${player.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-[#F6F7F2] dark:bg-[#1A2C27] border border-[#EDF1EA] dark:border-[#27403A]'} ${delta !== 0 ? 'gl-pop-in' : ''}`}>
+                      <span className={`text-sm font-mono font-bold w-5 text-center shrink-0 ${i === 0 ? 'text-[#B45309] dark:text-[#F5A524]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>{i === 0 ? '👑' : i + 1}</span>
+                      <div className="w-7 h-7 rounded-lg gl-gradient flex items-center justify-center text-white text-xs font-bold shrink-0">{player.name[0]}</div>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-semibold truncate ${player.isCurrentUser ? 'text-[#12C2A8]' : 'text-[#0B1F3A] dark:text-[#E2EBF6]'}`}>{player.name}</p>
+                        <p className={`text-xs font-semibold truncate ${player.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>{player.name}</p>
                       </div>
                       <PositionBadge delta={delta} />
-                      <p className="font-mono font-bold text-sm text-[#0B1F3A] dark:text-[#E2EBF6]">{player.score.toLocaleString()}</p>
+                      <p className="font-mono font-bold text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">{player.score.toLocaleString()}</p>
                     </div>
                   );
                 })}
@@ -852,7 +904,7 @@ export default function TriviaRoomPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -1,82 +1,141 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
-import CourseCard from '../components/CourseCard';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
+import { darDeBajaCurso, listarPorPublicador } from '../services/cursosServiceApi';
 import type { Course } from '../types';
 
+const NIVEL_TEXTO: Record<Course['level'], string> = { principiante: 'Principiante', intermedio: 'Intermedio', avanzado: 'Avanzado' };
+const card = 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl';
+
+// HU-07: el panel del publicador. Los publicadores gestionan sus cursos; el roadmap es para quienes aprenden.
 export default function MyCoursesPage() {
   const { navigate, currentUser } = useNavigation();
-  const { courses, setCourseStatus } = useAppData();
-  const [confirmTarget, setConfirmTarget] = useState<Course | null>(null);
+  const [cursos, setCursos] = useState<Course[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  const [aBajar, setABajar] = useState<Course | null>(null);
+  const [bajando, setBajando] = useState(false);
+  const [errorBaja, setErrorBaja] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let ignorar = false;
+    setError(null);
+    listarPorPublicador(Number(currentUser.id))
+      .then((c) => {
+        if (!ignorar) setCursos(c);
+      })
+      .catch((e: unknown) => {
+        if (!ignorar) setError(e instanceof Error ? e.message : 'No se pudieron cargar tus cursos.');
+      });
+    return () => {
+      ignorar = true;
+    };
+  }, [currentUser, recarga]);
 
   if (!currentUser) return null;
-  const myCourses = courses.filter((c) => c.publisherId === currentUser.id);
-  const activeCount = myCourses.filter((c) => c.status === 'active').length;
+  const activos = (cursos ?? []).filter((c) => c.status === 'active').length;
 
-  function handleConfirmDeactivate() {
-    if (confirmTarget) setCourseStatus(confirmTarget.id, 'inactive');
-    setConfirmTarget(null);
+  async function confirmarBaja() {
+    if (!aBajar) return;
+    setBajando(true);
+    setErrorBaja(null);
+    try {
+      await darDeBajaCurso(aBajar.id);
+      setABajar(null);
+      setRecarga((k) => k + 1);
+    } catch (e) {
+      setErrorBaja(e instanceof Error ? e.message : 'No se pudo dar de baja el curso.');
+    } finally {
+      setBajando(false);
+    }
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+    <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
       <Navbar />
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Panel publicador</span>
-            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-1">Mis cursos</h1>
-            <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">{activeCount} activo{activeCount !== 1 ? 's' : ''} de {myCourses.length} publicado{myCourses.length !== 1 ? 's' : ''}</p>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-1">Mis cursos</h1>
+            <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1">
+              {cursos ? `${activos} activo${activos !== 1 ? 's' : ''} de ${cursos.length} publicado${cursos.length !== 1 ? 's' : ''}` : 'Cargando…'}
+            </p>
           </div>
           <Button variant="gradient" onClick={() => navigate('publish-course')} className="self-start sm:self-auto">
             + Publicar curso
           </Button>
         </div>
 
-        {myCourses.length === 0 ? (
-          <div className="text-center py-20 bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl">
-            <div className="w-14 h-14 rounded-2xl gl-gradient flex items-center justify-center mx-auto mb-5">
-              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-            </div>
-            <p className="text-lg font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-1.5">Aún no has publicado cursos</p>
-            <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] mb-6 max-w-sm mx-auto">Comparte tu conocimiento — publica tu primer curso y aparecerá en el catálogo y en los roadmaps de los usuarios interesados.</p>
+        <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-6 rounded-xl bg-[#12C2A8]/8 border border-[#12C2A8]/20 px-4 py-3">
+          Lo que publiques aparece en el catálogo y se recomienda en los roadmaps de las personas que aprenden. Si das de baja un curso, deja de recomendarse.
+          Los roadmaps son para quienes estudian: como publicador tú gestionas contenido, y puedes jugar trivia como cualquiera.
+        </p>
+
+        {error ? (
+          <div role="alert" className="rounded-2xl border border-[#FECACA] dark:border-[#4C1D1D] bg-[#FEF2F2] dark:bg-[#2A1111] p-6 text-center">
+            <p className="text-sm text-[#DC2626] dark:text-[#F87171] mb-3">{error}</p>
+            <Button variant="secondary" size="sm" onClick={() => setRecarga((k) => k + 1)}>Reintentar</Button>
+          </div>
+        ) : cursos === null ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => <div key={i} className={`${card} h-24 animate-pulse`} />)}
+          </div>
+        ) : cursos.length === 0 ? (
+          <div className={`text-center py-16 ${card}`}>
+            <p className="text-lg font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-1.5">Aún no has publicado cursos</p>
+            <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-6 max-w-sm mx-auto">Publica tu primer curso con su temario y su examen: aparecerá en el catálogo y en los roadmaps de quienes lo necesiten.</p>
             <Button variant="gradient" onClick={() => navigate('publish-course')}>Publicar mi primer curso</Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {myCourses.map((course) => (
-              <CourseCard
-                key={course.id}
-                course={course}
-                showRelevance={false}
-                onSelect={() => navigate('course-detail', { id: course.id })}
-                actions={[
-                  { label: 'Editar', onClick: () => navigate('publish-course', { id: course.id }) },
-                  course.status === 'active'
-                    ? { label: 'Dar de baja', onClick: () => setConfirmTarget(course) }
-                    : { label: 'Reactivar', variant: 'primary', onClick: () => setCourseStatus(course.id, 'active') },
-                ]}
-              />
+          <ul className="space-y-3">
+            {cursos.map((c) => (
+              <li key={c.id} className={`${card} p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 ${c.status === 'inactive' ? 'opacity-70' : ''}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => navigate('course-detail', { id: c.id })} className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] hover:text-[#0E8A7D] text-left cursor-pointer">
+                      {c.title}
+                    </button>
+                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${c.status === 'active' ? 'bg-[#4CE07E]/15 text-[#15803D] dark:text-[#4CE07E]' : 'bg-[#FEF2F2] dark:bg-[#2A1111] text-[#DC2626] dark:text-[#F87171]'}`}>
+                      {c.status === 'active' ? 'Activo' : 'Dado de baja'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-1">
+                    {c.category} · {NIVEL_TEXTO[c.level]}
+                    {c.durationHours != null && ` · ${c.durationHours} h`} · {c.syllabus?.length ?? 0} temas ·{' '}
+                    {(c.examQuestions ?? 0) > 0 ? `examen de ${c.examQuestions} preguntas` : 'sin examen'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button size="sm" variant="secondary" onClick={() => navigate('course-detail', { id: c.id })}>Ver ficha</Button>
+                  {c.status === 'active' && (
+                    <>
+                      <Button size="sm" variant="primary" onClick={() => navigate('publish-course', { id: c.id })}>Editar</Button>
+                      <Button size="sm" variant="danger" onClick={() => setABajar(c)}>Dar de baja</Button>
+                    </>
+                  )}
+                </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </div>
+      </main>
 
-      {confirmTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmTarget(null)} />
-          <div className="relative bg-white dark:bg-[#0F2240] rounded-2xl border border-[#DDE4ED] dark:border-[#1C3254] w-full max-w-md shadow-2xl p-6">
-            <h3 className="text-lg font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mb-2">¿Dar de baja este curso?</h3>
-            <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] mb-6 leading-relaxed">
-              <span className="font-semibold text-[#0B1F3A] dark:text-[#E2EBF6]">{confirmTarget.title}</span> dejará de aparecer en el catálogo. Los usuarios que ya lo completaron conservarán su registro. No se elimina, puedes reactivarlo cuando quieras.
+      {aBajar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirmar baja">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !bajando && setABajar(null)} />
+          <div className="relative bg-white dark:bg-[#15231F] rounded-2xl border border-[#E1E6DF] dark:border-[#27403A] w-full max-w-md shadow-2xl p-6">
+            <h3 className="text-lg font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2">¿Dar de baja este curso?</h3>
+            <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-5 leading-relaxed">
+              <span className="font-semibold text-[#1F2D2A] dark:text-[#E6EFE9]">{aBajar.title}</span> saldrá del catálogo y dejará de recomendarse en los roadmaps.
+              Quienes ya lo aprobaron conservan su registro. No se puede reactivar desde aquí.
             </p>
+            {errorBaja && <p role="alert" className="text-sm text-[#DC2626] dark:text-[#F87171] mb-3">{errorBaja}</p>}
             <div className="flex gap-3">
-              <Button variant="secondary" className="flex-1" onClick={() => setConfirmTarget(null)}>Cancelar</Button>
-              <Button variant="danger" className="flex-1" onClick={handleConfirmDeactivate}>Dar de baja</Button>
+              <Button variant="secondary" className="flex-1" onClick={() => setABajar(null)} disabled={bajando}>Cancelar</Button>
+              <Button variant="danger" className="flex-1" onClick={confirmarBaja} disabled={bajando}>{bajando ? 'Dando de baja…' : 'Dar de baja'}</Button>
             </div>
           </div>
         </div>

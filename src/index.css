@@ -3,34 +3,37 @@
 @import 'tailwindcss';
 
 :root {
-  --gl-bg: #F7F9FA;
+  --gl-bg: #F6F7F2;
   --gl-card: #FFFFFF;
-  --gl-card2: #EEF2F6;
-  --gl-text: #0B1F3A;
-  --gl-text2: #6B7A99;
-  --gl-line: #DDE4ED;
+  --gl-card2: #EDF1EA;
+  --gl-text: #1F2D2A;
+  --gl-text2: #6B7A74;
+  --gl-line: #E1E6DF;
   --gl-input: #FFFFFF;
 }
 html.dark {
-  --gl-bg: #081629;
-  --gl-card: #0F2240;
-  --gl-card2: #132A47;
-  --gl-text: #E2EBF6;
-  --gl-text2: #8BA5C2;
-  --gl-line: #1C3254;
-  --gl-input: #132A47;
+  --gl-bg: #0E1815;
+  --gl-card: #15231F;
+  --gl-card2: #1A2C27;
+  --gl-text: #E6EFE9;
+  --gl-text2: #98B0A6;
+  --gl-line: #27403A;
+  --gl-input: #1A2C27;
 }
 
 @theme {
-  --color-gl-blue: #1E73E8;
+  --color-gl-blue: #0E8A7D;
   --color-gl-teal: #12C2A8;
   --color-gl-green: #4CE07E;
-  --color-gl-navy: #0B1F3A;
-  --color-gl-navy-mid: #112849;
-  --color-gl-surface: #F7F9FA;
-  --color-gl-surface-2: #EEF2F6;
-  --color-gl-border: #DDE4ED;
-  --color-gl-muted: #6B7A99;
+  --color-gl-navy: #1F2D2A;
+  --color-gl-navy-mid: #2A3B37;
+  --color-gl-surface: #F6F7F2;
+  --color-gl-surface-2: #EDF1EA;
+  --color-gl-border: #E1E6DF;
+  --color-gl-muted: #6B7A74;
+  --color-gl-coral: #F2704E;
+  --color-gl-amber: #F5A524;
+  --color-gl-sand: #FBF3E4;
   --font-display: 'Bricolage Grotesque', sans-serif;
   --font-body: 'Plus Jakarta Sans', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -42,8 +45,8 @@ html, body, #root {
 
 body {
   font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: #F7F9FA;
-  color: #0B1F3A;
+  background-color: #F6F7F2;
+  color: #1F2D2A;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -56,11 +59,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .gl-gradient {
-  background: linear-gradient(135deg, #1E73E8 0%, #12C2A8 55%, #4CE07E 100%);
+  background: linear-gradient(135deg, #0E8A7D 0%, #12C2A8 55%, #4CE07E 100%);
 }
 
 .gl-gradient-text {
-  background: linear-gradient(135deg, #1E73E8, #12C2A8, #4CE07E);
+  background: linear-gradient(135deg, #0E8A7D, #12C2A8, #4CE07E);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -68,7 +71,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .gl-gradient-border {
   background: linear-gradient(#fff, #fff) padding-box,
-              linear-gradient(135deg, #1E73E8, #12C2A8, #4CE07E) border-box;
+              linear-gradient(135deg, #0E8A7D, #12C2A8, #4CE07E) border-box;
   border: 2px solid transparent;
 }
 
@@ -97,7 +100,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 .gl-card-hover:hover {
   transform: translateY(-3px);
-  box-shadow: 0 16px 32px -16px rgba(11, 31, 58, 0.25);
+  box-shadow: 0 16px 32px -16px rgba(31, 45, 42, 0.25);
 }
 html.dark .gl-card-hover:hover {
   box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.5);
@@ -107,7 +110,7 @@ html.dark .gl-card-hover:hover {
   box-shadow: 0 0 0 1px rgba(18, 194, 168, 0.25), 0 8px 24px -8px rgba(18, 194, 168, 0.45);
 }
 .gl-glow-blue {
-  box-shadow: 0 0 0 1px rgba(30, 115, 232, 0.25), 0 8px 24px -8px rgba(30, 115, 232, 0.45);
+  box-shadow: 0 0 0 1px rgba(14, 138, 125, 0.25), 0 8px 24px -8px rgba(14, 138, 125, 0.45);
 }
 
 @keyframes popIn {
@@ -145,7 +148,7 @@ html.dark .gl-card-hover:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #DDE4ED;
+  background: #E1E6DF;
   border-radius: 4px;
 }
 
@@ -155,7 +158,7 @@ html.dark .gl-card-hover:hover {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #DDE4ED transparent;
+  scrollbar-color: #E1E6DF transparent;
 }
 
 /* Dual-handle range slider (two overlapped native inputs) */
@@ -174,8 +177,8 @@ html.dark .gl-card-hover:hover {
   height: 16px;
   border-radius: 9999px;
   background: #ffffff;
-  border: 3px solid #1E73E8;
-  box-shadow: 0 1px 4px rgba(11, 31, 58, 0.35);
+  border: 3px solid #0E8A7D;
+  box-shadow: 0 1px 4px rgba(31, 45, 42, 0.35);
   cursor: pointer;
   margin-top: 0;
 }
@@ -185,8 +188,8 @@ html.dark .gl-card-hover:hover {
   height: 16px;
   border-radius: 9999px;
   background: #ffffff;
-  border: 3px solid #1E73E8;
-  box-shadow: 0 1px 4px rgba(11, 31, 58, 0.35);
+  border: 3px solid #0E8A7D;
+  box-shadow: 0 1px 4px rgba(31, 45, 42, 0.35);
   cursor: pointer;
 }
 .gl-range-input::-webkit-slider-runnable-track {
@@ -269,4 +272,70 @@ html.dark .gl-card-hover:hover {
 }
 .gl-float-card {
   animation: floatCard 5s ease-in-out infinite;
+}
+
+/* ---- Roadmap, examen y trivia: animaciones suaves ---- */
+
+/* Confeti: cada pieza cae una sola vez; las variables las pone el componente Confetti */
+@keyframes confettiFall {
+  0% { transform: translate3d(0, -12vh, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), 105vh, 0) rotate(var(--spin, 540deg)); opacity: 0.9; }
+}
+.gl-confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  animation: confettiFall var(--dur, 3s) cubic-bezier(0.25, 0.6, 0.4, 1) var(--delay, 0s) forwards;
+  will-change: transform;
+}
+
+/* El siguiente paso del roadmap respira para llamar la atención sin gritar */
+@keyframes softPulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.55); }
+  70% { box-shadow: 0 0 0 12px rgba(245, 165, 36, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0); }
+}
+.gl-soft-pulse {
+  animation: softPulse 2.2s ease-out infinite;
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.gl-sheet-up {
+  animation: sheetUp 0.22s ease-out;
+}
+
+@keyframes ringDraw {
+  from { stroke-dashoffset: var(--ring-total, 289); }
+}
+.gl-ring-draw {
+  animation: ringDraw 0.9s ease-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+.gl-shake {
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes scorePop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.gl-score-pop {
+  animation: scorePop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-confetti-piece, .gl-soft-pulse, .gl-sheet-up, .gl-ring-draw, .gl-shake, .gl-score-pop {
+    animation: none !important;
+  }
 }

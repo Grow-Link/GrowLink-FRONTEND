@@ -9,7 +9,7 @@ interface ProgressBarProps {
 
 const variantClasses: Record<string, string> = {
   gradient: 'gl-gradient',
-  blue: 'bg-[#1E73E8]',
+  blue: 'bg-[#0E8A7D]',
   teal: 'bg-[#12C2A8]',
   green: 'bg-[#4CE07E]',
 };
@@ -32,14 +32,14 @@ export default function ProgressBar({
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
-      <div className={`flex-1 bg-[#EEF2F6] dark:bg-[#1C3254] rounded-full overflow-hidden ${sizeClasses[size]}`}>
+      <div className={`flex-1 bg-[#EDF1EA] dark:bg-[#27403A] rounded-full overflow-hidden ${sizeClasses[size]}`}>
         <div
           className={`h-full rounded-full transition-all duration-500 ${variantClasses[variant]}`}
           style={{ width: `${pct}%` }}
         />
       </div>
       {showLabel && (
-        <span className="text-xs font-mono font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] tabular-nums min-w-[3rem] text-right">
+        <span className="text-xs font-mono font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] tabular-nums min-w-[3rem] text-right">
           {Math.round(pct)}%
         </span>
       )}

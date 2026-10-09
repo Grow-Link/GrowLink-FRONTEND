@@ -1,31 +1,82 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import Input from '../components/Input';
+import CatalogCard from '../components/CatalogCard';
 import { useNavigation } from '../store/NavigationContext';
-import { useAppData } from '../store/AppDataContext';
-import { getSession } from '../services/backendSession';
-import { LEVELS } from '../services/mockData';
-import { CATEGORIAS_CURSOS, crearCurso, getHabilidades, sugerirPrerequisitos, type PrerequisitoSugerido } from '../services/cursosServiceApi';
-import type { Level } from '../types';
+import {
+  actualizarPrerequisitos,
+  CATEGORIAS_CURSOS,
+  crearCurso,
+  editarCurso,
+  getHabilidades,
+  listarCatalogo,
+  obtenerCurso,
+  sugerirPrerequisitos,
+  type PreguntaExamenInput,
+  type PrerequisitoSugerido,
+} from '../services/cursosServiceApi';
+import type { Course, Level } from '../types';
 
+const LEVELS: { value: Level; label: string }[] = [
+  { value: 'principiante', label: 'Principiante' },
+  { value: 'intermedio', label: 'Intermedio' },
+  { value: 'avanzado', label: 'Avanzado' },
+];
 const LEVEL_RANK: Record<Level, number> = { principiante: 0, intermedio: 1, avanzado: 2 };
 
+const MIN_PREGUNTAS = 3;
+const MAX_PREGUNTAS = 15;
+const MIN_TEMAS = 3;
+const MAX_TEMAS = 30;
+
+const card = 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl p-5 sm:p-6';
+const campo =
+  'w-full px-3.5 py-2.5 border border-[#E1E6DF] dark:border-[#27403A] rounded-xl text-sm text-[#1F2D2A] dark:text-[#E6EFE9] bg-white dark:bg-[#1A2C27] placeholder:text-[#6B7A74] dark:placeholder:text-[#98B0A6] focus:outline-none focus:ring-2 focus:ring-[#0E8A7D]/10 focus:border-[#0E8A7D] transition-all';
+
+interface PreguntaForm {
+  enunciado: string;
+  opciones: [string, string, string, string];
+  correcta: number;
+}
+
+const preguntaVacia = (): PreguntaForm => ({ enunciado: '', opciones: ['', '', '', ''], correcta: 0 });
+
+/** Lo que falta o está mal en el examen, con un texto que sirva para corregirlo. Vacío = está bien. */
+function problemasDelExamen(preguntas: PreguntaForm[]): string[] {
+  const problemas: string[] = [];
+  if (preguntas.length < MIN_PREGUNTAS) problemas.push(`Agrega al menos ${MIN_PREGUNTAS} preguntas.`);
+  preguntas.forEach((p, i) => {
+    const n = i + 1;
+    if (p.enunciado.trim().length < 5) problemas.push(`Pregunta ${n}: escribe el enunciado.`);
+    const opciones = p.opciones.map((o) => o.trim());
+    if (opciones.some((o) => o === '')) problemas.push(`Pregunta ${n}: completa las 4 opciones.`);
+    else if (new Set(opciones.map((o) => o.toLowerCase())).size < 4) problemas.push(`Pregunta ${n}: las 4 opciones deben ser distintas.`);
+  });
+  return problemas;
+}
+
 export default function PublishCoursePage() {
-  const { navigate, paramId, currentUser } = useNavigation();
-  const { courses, getCourse, updateCourse } = useAppData();
+  const { navigate, goBack, canGoBack, paramId, currentUser } = useNavigation();
 
-  const editingCourse = paramId ? getCourse(paramId) : undefined;
-  const isEditing = Boolean(editingCourse);
+  const [editando, setEditando] = useState<Course | null>(null);
+  const [cargandoCurso, setCargandoCurso] = useState(Boolean(paramId));
+  const [errorCurso, setErrorCurso] = useState<string | null>(null);
+  const esEdicion = Boolean(paramId);
 
-  const [title, setTitle] = useState(editingCourse?.title ?? '');
-  const [description, setDescription] = useState(editingCourse?.description ?? '');
-  const [category, setCategory] = useState(editingCourse?.category ?? CATEGORIAS_CURSOS[0]);
-  const [level, setLevel] = useState<Level>(editingCourse?.level ?? 'principiante');
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(editingCourse?.skills ?? []);
-  const [contentUrl, setContentUrl] = useState(editingCourse?.contentUrl ?? '');
-  const [prerequisites, setPrerequisites] = useState<string[]>(editingCourse?.prerequisites ?? []);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<string>(CATEGORIAS_CURSOS[0]);
+  const [level, setLevel] = useState<Level>('principiante');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [contentUrl, setContentUrl] = useState('');
+  const [horas, setHoras] = useState('');
+  const [temario, setTemario] = useState<string[]>(['', '', '']);
+  const [prerequisites, setPrerequisites] = useState<string[]>([]);
+  const [preguntas, setPreguntas] = useState<PreguntaForm[]>([preguntaVacia(), preguntaVacia(), preguntaVacia()]);
+  const [reemplazarExamen, setReemplazarExamen] = useState(true);
 
+  const [catalogo, setCatalogo] = useState<Course[]>([]);
   const [skillsOptions, setSkillsOptions] = useState<string[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -34,16 +85,54 @@ export default function PublishCoursePage() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestModoRespaldo, setSuggestModoRespaldo] = useState<boolean | null>(null);
-  const [unmatchedSuggestions, setUnmatchedSuggestions] = useState<PrerequisitoSugerido[]>([]);
 
+  const [intento, setIntento] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // el catálogo real, para elegir prerrequisitos entre cursos que existen de verdad
   useEffect(() => {
-    if (editingCourse && editingCourse.publisherId !== currentUser?.id) {
-      navigate('my-courses');
-    }
-  }, [editingCourse, currentUser, navigate]);
+    listarCatalogo().then(setCatalogo).catch(() => setCatalogo([]));
+  }, []);
+
+  // al editar se carga el curso real y se verifica que sea de quien lo edita
+  useEffect(() => {
+    if (!paramId) return;
+    let ignorar = false;
+    obtenerCurso(paramId)
+      .then((c) => {
+        if (ignorar) return;
+        if (!c) {
+          setErrorCurso('Ese curso no existe.');
+          return;
+        }
+        if (c.publisherId !== currentUser?.id) {
+          navigate('my-courses');
+          return;
+        }
+        setEditando(c);
+        setTitle(c.title);
+        setDescription(c.description);
+        setCategory(c.category);
+        setLevel(c.level);
+        setSelectedSkills(c.skills);
+        setContentUrl(c.contentUrl);
+        setHoras(c.durationHours != null ? String(c.durationHours) : '');
+        setTemario(c.syllabus && c.syllabus.length > 0 ? c.syllabus : ['', '', '']);
+        setPrerequisites(c.prerequisites);
+        // si ya tiene examen se conserva a menos que se pida reemplazarlo (el servidor no devuelve las respuestas correctas)
+        setReemplazarExamen((c.examQuestions ?? 0) === 0);
+      })
+      .catch((err: unknown) => {
+        if (!ignorar) setErrorCurso(err instanceof Error ? err.message : 'No se pudo cargar el curso.');
+      })
+      .finally(() => {
+        if (!ignorar) setCargandoCurso(false);
+      });
+    return () => {
+      ignorar = true;
+    };
+  }, [paramId, currentUser, navigate]);
 
   // Catálogo cerrado de habilidades por categoría, desde cursos-service.
   useEffect(() => {
@@ -71,28 +160,22 @@ export default function PublishCoursePage() {
     setPrerequisites([]);
     setSuggestModoRespaldo(null);
     setSuggestError(null);
-    setUnmatchedSuggestions([]);
   }
 
-  function toggleSkill(skill: string) {
-    setSelectedSkills((prev) => (prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]));
-  }
+  const toggleSkill = (skill: string) => setSelectedSkills((prev) => (prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]));
 
-  const eligiblePrereqs = courses.filter(
-    (c) => c.status === 'active' && c.id !== editingCourse?.id && c.category === category && LEVEL_RANK[c.level] < LEVEL_RANK[level]
+  const eligiblePrereqs = useMemo(
+    () => catalogo.filter((c) => c.id !== editando?.id && c.category === category && LEVEL_RANK[c.level] < LEVEL_RANK[level]),
+    [catalogo, editando, category, level]
   );
 
   async function suggestPrerequisites() {
     setSuggestLoading(true);
     setSuggestError(null);
-    setUnmatchedSuggestions([]);
     try {
-      const { prerequisitos, modoRespaldo } = await sugerirPrerequisitos({ categoria: category, nivel: level, titulo: title });
-      const localIds = new Set(eligiblePrereqs.map((c) => c.id));
-      const matched = prerequisitos.filter((p) => localIds.has(p.id));
-      const unmatched = prerequisitos.filter((p) => !localIds.has(p.id));
-      setPrerequisites(matched.map((p) => p.id));
-      setUnmatchedSuggestions(unmatched);
+      const { prerequisitos, modoRespaldo }: { prerequisitos: PrerequisitoSugerido[]; modoRespaldo: boolean } = await sugerirPrerequisitos({ categoria: category, nivel: level, titulo: title });
+      const ids = new Set(eligiblePrereqs.map((c) => c.id));
+      setPrerequisites(prerequisitos.map((p) => p.id).filter((id) => ids.has(id)));
       setSuggestModoRespaldo(modoRespaldo);
     } catch (err) {
       setSuggestError(err instanceof Error ? err.message : 'No se pudo contactar a cursos-service.');
@@ -101,142 +184,180 @@ export default function PublishCoursePage() {
     }
   }
 
-  function togglePrereq(id: string) {
-    setPrerequisites((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
-  }
+  const togglePrereq = (id: string) => setPrerequisites((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
 
-  const canSuggest = title.trim().length > 0 && level !== 'principiante' && !suggestLoading;
-  const canSubmit = Boolean(title.trim() && description.trim() && contentUrl.trim() && selectedSkills.length > 0 && !submitting);
+  // ---------------- validación ----------------
+  const horasNum = Number(horas);
+  const temasLimpios = temario.map((t) => t.trim()).filter(Boolean);
+  const examenAEnviar = !esEdicion || reemplazarExamen;
+  const problemasExamen = examenAEnviar ? problemasDelExamen(preguntas) : [];
+
+  const problemas: string[] = [];
+  if (title.trim().length < 3) problemas.push('Escribe un título.');
+  if (description.trim().length < 30) problemas.push('La descripción debe tener al menos 30 caracteres.');
+  if (!/^https?:\/\/\S+\.\S+/.test(contentUrl.trim())) problemas.push('El enlace al contenido debe empezar con http:// o https://.');
+  if (!Number.isInteger(horasNum) || horasNum < 1 || horasNum > 500) problemas.push('Indica las horas del curso (entre 1 y 500).');
+  if (temasLimpios.length < MIN_TEMAS) problemas.push(`El temario necesita al menos ${MIN_TEMAS} temas.`);
+  if (selectedSkills.length === 0) problemas.push('Elige al menos una habilidad.');
+  problemas.push(...problemasExamen);
 
   async function handleSubmit() {
-    if (!currentUser || !canSubmit) return;
-    if (isEditing && editingCourse) {
-      // Editar sigue sobre el curso local mock — crearCurso() en cursos-service es solo para publicar nuevos.
-      updateCourse(editingCourse.id, { title, description, category, level, skills: selectedSkills, contentUrl, prerequisites });
-      navigate('my-courses');
-      return;
-    }
-
-    const session = getSession();
-    if (!session) return;
-
+    setIntento(true);
+    if (!currentUser || problemas.length > 0) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // Los prerequisitos marcados a mano salen del catálogo local (mockData), no de cursos-service,
-      // así que sus ids no son numéricos reales — se descartan y solo se mandan los que sí lo son
-      // (los que vinieron de "Sugerir con IA", que sí son ids reales de cursos-service).
+      const examen: PreguntaExamenInput[] = preguntas.map((p) => ({
+        enunciado: p.enunciado.trim(),
+        opciones: p.opciones.map((o) => o.trim()),
+        respuestaCorrecta: p.correcta,
+      }));
       const prerequisitoIds = prerequisites.map(Number).filter((n) => Number.isFinite(n));
-      await crearCurso({
-        titulo: title,
-        descripcion: description,
-        categoria: category,
-        nivel: level,
-        habilidades: selectedSkills,
-        linkContenido: contentUrl,
-        publicadorUsuarioId: session.usuarioId,
-        prerequisitoIds,
-      });
-      navigate('my-courses');
+      if (editando) {
+        await editarCurso(editando.id, {
+          titulo: title.trim(),
+          descripcion: description.trim(),
+          categoria: category,
+          nivel: level,
+          habilidades: selectedSkills,
+          linkContenido: contentUrl.trim(),
+          duracionHoras: horasNum,
+          temario: temasLimpios,
+          ...(reemplazarExamen ? { examen } : {}),
+        });
+        await actualizarPrerequisitos(editando.id, prerequisitoIds);
+      } else {
+        await crearCurso({
+          titulo: title.trim(),
+          descripcion: description.trim(),
+          categoria: category,
+          nivel: level,
+          habilidades: selectedSkills,
+          linkContenido: contentUrl.trim(),
+          publicadorUsuarioId: Number(currentUser.id),
+          prerequisitoIds,
+          duracionHoras: horasNum,
+          temario: temasLimpios,
+          examen,
+        });
+      }
+      navigate('my-courses', { replace: true });
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'No se pudo publicar el curso.');
+      setSubmitError(err instanceof Error ? err.message : 'No se pudo guardar el curso.');
     } finally {
       setSubmitting(false);
     }
   }
 
-  const categoryOptions = CATEGORIAS_CURSOS.includes(category as (typeof CATEGORIAS_CURSOS)[number])
-    ? CATEGORIAS_CURSOS
-    : [category, ...CATEGORIAS_CURSOS];
+  if (cargandoCurso) {
+    return (
+      <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
+        <Navbar />
+        <p className="text-center text-sm text-[#6B7A74] dark:text-[#98B0A6] py-24">Cargando curso…</p>
+      </div>
+    );
+  }
+
+  if (errorCurso) {
+    return (
+      <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
+        <Navbar />
+        <div className="max-w-lg mx-auto text-center px-4 py-24">
+          <p className="text-[#DC2626] dark:text-[#F87171] mb-5">{errorCurso}</p>
+          <Button variant="secondary" onClick={() => navigate('my-courses')}>Volver a mis cursos</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // vista previa: la misma tarjeta que verá el catálogo
+  const vistaPrevia: Course = {
+    id: 'previa',
+    title: title || 'Título del curso',
+    description,
+    category,
+    level,
+    skills: selectedSkills,
+    contentUrl,
+    prerequisites,
+    publisherId: currentUser?.id ?? '',
+    publisherName: currentUser?.name ?? '',
+    status: 'active',
+    createdAt: '',
+    durationHours: horasNum > 0 ? horasNum : null,
+    syllabus: temasLimpios,
+    examQuestions: examenAEnviar ? preguntas.length : editando?.examQuestions ?? 0,
+  };
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] dark:bg-[#081629]">
+    <div className="min-h-screen bg-[#F6F7F2] dark:bg-[#0E1815]">
       <Navbar />
-      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        <div className="flex flex-col lg:grid lg:grid-cols-[1fr_360px] gap-8 lg:items-start">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+        <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_340px] gap-8 lg:items-start">
           <div className="space-y-6">
             <div>
-              <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Panel publicador</span>
-              <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] mt-2">
-                {isEditing ? 'Editar curso' : 'Publicar curso'}
-              </h1>
-              <p className="text-[#6B7A99] dark:text-[#8BA5C2] mt-1">Define categoría, nivel y prerequisitos — así la IA lo incorpora correctamente a los roadmaps.</p>
+              <button type="button" onClick={() => (canGoBack ? goBack() : navigate('my-courses'))} className="text-sm font-medium text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#0E8A7D] mb-3 cursor-pointer">
+                ← Volver a mis cursos
+              </button>
+              <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">{esEdicion ? 'Editar curso' : 'Publicar curso'}</h1>
+              <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1 text-sm">
+                Lo que escribas aquí es lo que verán las personas en el catálogo y en su roadmap: descripción, temario y horas. El examen es lo que permite completar el curso.
+              </p>
             </div>
 
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 sm:p-6 space-y-4">
-              <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">Detalles</h2>
-              <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Estática y Resistencia de Materiales" />
+            <div className={`${card} space-y-4`}>
+              <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">1. Detalles</h2>
+              <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Python desde Cero" />
               <div>
-                <label className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] block mb-1.5">Descripción</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={4}
-                  placeholder="Describe qué aprenderá el estudiante en este curso..."
-                  className="w-full px-3.5 py-2.5 border border-[#DDE4ED] dark:border-[#1C3254] rounded-xl text-sm text-[#0B1F3A] dark:text-[#E2EBF6] bg-white dark:bg-[#132A47] placeholder:text-[#6B7A99] dark:placeholder:text-[#8BA5C2] focus:outline-none focus:ring-2 focus:ring-[#1E73E8]/10 focus:border-[#1E73E8] transition-all resize-none"
-                />
+                <label className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] block mb-1.5">Descripción</label>
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="¿Qué va a aprender la persona y para qué le sirve?" className={`${campo} resize-none`} />
+                <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-1">{description.trim().length} caracteres (mínimo 30)</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] block mb-1.5">Categoría</label>
-                  <select
-                    value={category}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="w-full border rounded-xl px-3.5 py-2.5 bg-white dark:bg-[#132A47] border-[#DDE4ED] dark:border-[#1C3254] text-sm text-[#0B1F3A] dark:text-[#E2EBF6] outline-none focus:border-[#1E73E8] cursor-pointer"
-                  >
-                    {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <label className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] block mb-1.5">Área</label>
+                  <select value={category} disabled={esEdicion} onChange={(e) => handleCategoryChange(e.target.value)} className={`${campo} cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}>
+                    {CATEGORIAS_CURSOS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
+                  {esEdicion && <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-1">El área no cambia al editar.</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] block mb-1.5">Nivel</label>
-                  <select
-                    value={level}
-                    onChange={(e) => { setLevel(e.target.value as Level); setPrerequisites([]); setSuggestModoRespaldo(null); setUnmatchedSuggestions([]); }}
-                    className="w-full border rounded-xl px-3.5 py-2.5 bg-white dark:bg-[#132A47] border-[#DDE4ED] dark:border-[#1C3254] text-sm text-[#0B1F3A] dark:text-[#E2EBF6] outline-none focus:border-[#1E73E8] cursor-pointer"
-                  >
+                  <label className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] block mb-1.5">Nivel</label>
+                  <select value={level} onChange={(e) => { setLevel(e.target.value as Level); setPrerequisites([]); setSuggestModoRespaldo(null); }} className={`${campo} cursor-pointer`}>
                     {LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
                   </select>
                 </div>
+                <Input label="Horas del curso" type="number" min={1} max={500} value={horas} onChange={(e) => setHoras(e.target.value)} placeholder="Ej. 12" />
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6]">Habilidades</label>
-                  <span className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-mono">{category}</span>
+                  <label className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9]">Habilidades que desbloquea</label>
+                  <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">{category}</span>
                 </div>
                 {skillsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-[#6B7A99] dark:text-[#8BA5C2] py-3">
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Cargando habilidades de cursos-service...
-                  </div>
+                  <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] py-2">Cargando habilidades…</p>
                 ) : skillsError ? (
                   <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
                     <p className="text-xs text-[#DC2626] dark:text-[#F87171] flex-1">{skillsError}</p>
-                    <button
-                      onClick={() => setSkillsReloadKey((k) => k + 1)}
-                      className="text-xs font-semibold text-[#DC2626] dark:text-[#F87171] underline cursor-pointer shrink-0"
-                    >
-                      Reintentar
-                    </button>
+                    <button type="button" onClick={() => setSkillsReloadKey((k) => k + 1)} className="text-xs font-semibold text-[#DC2626] dark:text-[#F87171] underline cursor-pointer shrink-0">Reintentar</button>
                   </div>
                 ) : skillsOptions.length === 0 ? (
-                  <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] py-1">cursos-service no tiene habilidades registradas para esta categoría.</p>
+                  <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] py-1">No hay habilidades registradas para esta área.</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {skillsOptions.map((skill) => {
-                      const checked = selectedSkills.includes(skill);
+                      const marcado = selectedSkills.includes(skill);
                       return (
                         <button
                           key={skill}
                           type="button"
                           onClick={() => toggleSkill(skill)}
+                          aria-pressed={marcado}
                           className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all cursor-pointer ${
-                            checked
-                              ? 'bg-[#0B1F3A] dark:bg-[#1C3254] text-white border-[#0B1F3A] dark:border-[#1C3254]'
-                              : 'bg-white dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border-[#DDE4ED] dark:border-[#1C3254] hover:border-[#1E73E8] hover:text-[#1E73E8]'
+                            marcado
+                              ? 'bg-[#0E8A7D] text-white border-[#0E8A7D]'
+                              : 'bg-white dark:bg-[#1A2C27] text-[#6B7A74] dark:text-[#98B0A6] border-[#E1E6DF] dark:border-[#27403A] hover:border-[#0E8A7D] hover:text-[#0E8A7D]'
                           }`}
                         >
                           {skill}
@@ -247,143 +368,164 @@ export default function PublishCoursePage() {
                 )}
               </div>
 
-              <Input label="Link de contenido" value={contentUrl} onChange={(e) => setContentUrl(e.target.value)} placeholder="https://..." />
+              <Input label="Enlace al contenido" value={contentUrl} onChange={(e) => setContentUrl(e.target.value)} placeholder="https://..." hint="Dónde estudia la persona este curso (video, plataforma, documento)." />
             </div>
 
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 sm:p-6 space-y-4">
+            <div className={`${card} space-y-3`}>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">2. Temario</h2>
+                <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">{temasLimpios.length} {temasLimpios.length === 1 ? 'tema' : 'temas'}</span>
+              </div>
+              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Lista, en orden, lo que se ve en el curso. Mínimo {MIN_TEMAS} temas.</p>
+              <ol className="space-y-2">
+                {temario.map((tema, i) => (
+                  <li key={i} className="flex items-center gap-2">
+                    <span className="w-6 h-6 shrink-0 rounded-full bg-[#12C2A8]/15 text-[#0B6F65] dark:text-[#5FD3C2] text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                    <input value={tema} onChange={(e) => setTemario((prev) => prev.map((t, k) => (k === i ? e.target.value : t)))} placeholder="Ej. Variables y tipos de datos" className={campo} aria-label={`Tema ${i + 1}`} />
+                    <button type="button" onClick={() => setTemario((prev) => (prev.length > 1 ? prev.filter((_, k) => k !== i) : prev))} aria-label={`Quitar tema ${i + 1}`} className="w-8 h-8 shrink-0 rounded-lg text-[#6B7A74] hover:bg-[#EDF1EA] dark:hover:bg-[#27403A] cursor-pointer">✕</button>
+                  </li>
+                ))}
+              </ol>
+              {temario.length < MAX_TEMAS && (
+                <Button variant="secondary" size="sm" onClick={() => setTemario((prev) => [...prev, ''])}>+ Agregar tema</Button>
+              )}
+            </div>
+
+            <div className={`${card} space-y-4`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6]">Prerequisitos</h2>
-                <button
-                  onClick={suggestPrerequisites}
-                  disabled={!canSuggest}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-[#1E73E8] border border-[#1E73E8]/30 hover:bg-[#EFF6FF] dark:hover:bg-[#0D1F3C] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {suggestLoading ? (
-                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                    </svg>
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">3. Examen</h2>
+                {esEdicion && (editando?.examQuestions ?? 0) > 0 && (
+                  <label className="flex items-center gap-2 text-sm text-[#1F2D2A] dark:text-[#E6EFE9] cursor-pointer">
+                    <input type="checkbox" checked={reemplazarExamen} onChange={(e) => setReemplazarExamen(e.target.checked)} className="accent-[#0E8A7D]" />
+                    Reemplazar el examen actual
+                  </label>
+                )}
+              </div>
+
+              {esEdicion && !reemplazarExamen ? (
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">
+                  Se conserva el examen actual ({editando?.examQuestions} preguntas). Marca «Reemplazar» si quieres escribir uno nuevo.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">
+                    Quien lo apruebe (70% o más) completa el curso. De {MIN_PREGUNTAS} a {MAX_PREGUNTAS} preguntas, cada una con 4 opciones distintas y una sola correcta.
+                  </p>
+                  <div className="space-y-4">
+                    {preguntas.map((p, i) => (
+                      <div key={i} className="rounded-xl border border-[#E1E6DF] dark:border-[#27403A] p-4 bg-[#F6F7F2]/60 dark:bg-[#1A2C27]/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[#6B7A74] dark:text-[#98B0A6]">Pregunta {i + 1}</span>
+                          {preguntas.length > MIN_PREGUNTAS && (
+                            <button type="button" onClick={() => setPreguntas((prev) => prev.filter((_, k) => k !== i))} className="text-xs text-[#DC2626] dark:text-[#F87171] hover:underline cursor-pointer">Quitar</button>
+                          )}
+                        </div>
+                        <input value={p.enunciado} onChange={(e) => setPreguntas((prev) => prev.map((q, k) => (k === i ? { ...q, enunciado: e.target.value } : q)))} placeholder="Enunciado de la pregunta" className={campo} aria-label={`Enunciado de la pregunta ${i + 1}`} />
+                        <div className="mt-3 space-y-2" role="radiogroup" aria-label={`Opciones de la pregunta ${i + 1}`}>
+                          {p.opciones.map((op, j) => (
+                            <div key={j} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`correcta-${i}`}
+                                checked={p.correcta === j}
+                                onChange={() => setPreguntas((prev) => prev.map((q, k) => (k === i ? { ...q, correcta: j } : q)))}
+                                className="accent-[#12C2A8] w-4 h-4 shrink-0 cursor-pointer"
+                                aria-label={`Marcar la opción ${j + 1} como correcta`}
+                              />
+                              <input
+                                value={op}
+                                onChange={(e) =>
+                                  setPreguntas((prev) =>
+                                    prev.map((q, k) => (k === i ? { ...q, opciones: q.opciones.map((o, m) => (m === j ? e.target.value : o)) as PreguntaForm['opciones'] } : q))
+                                  )
+                                }
+                                placeholder={`Opción ${j + 1}${p.correcta === j ? ' (correcta)' : ''}`}
+                                className={campo}
+                                aria-label={`Opción ${j + 1} de la pregunta ${i + 1}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {preguntas.length < MAX_PREGUNTAS && (
+                    <Button variant="secondary" size="sm" onClick={() => setPreguntas((prev) => [...prev, preguntaVacia()])}>+ Agregar pregunta</Button>
                   )}
-                  {suggestLoading ? 'Consultando cursos-service...' : 'Sugerir con IA'}
+                </>
+              )}
+            </div>
+
+            <div className={`${card} space-y-4`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">4. Prerrequisitos</h2>
+                <button
+                  type="button"
+                  onClick={suggestPrerequisites}
+                  disabled={!(title.trim().length > 0 && level !== 'principiante') || suggestLoading}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#0E8A7D] border border-[#0E8A7D]/30 hover:bg-[#ECF7F4] dark:hover:bg-[#10211D] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {suggestLoading ? 'Consultando…' : 'Sugerir con IA'}
                 </button>
               </div>
 
               {level === 'principiante' ? (
-                <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Los cursos de nivel principiante no requieren prerequisitos.</p>
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Los cursos de nivel principiante no requieren prerrequisitos.</p>
               ) : (
                 <>
-                  {suggestError && (
-                    <div className="p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
-                      <p className="text-xs text-[#DC2626] dark:text-[#F87171]">{suggestError}</p>
-                    </div>
-                  )}
-
+                  {suggestError && <p role="alert" className="text-xs text-[#DC2626] dark:text-[#F87171]">{suggestError}</p>}
                   {suggestModoRespaldo !== null && (
-                    <div
-                      className={`text-xs font-semibold px-3 py-2 rounded-lg border ${
-                        suggestModoRespaldo
-                          ? 'text-[#B45309] dark:text-[#FBBF24] bg-[#FFFBEB] dark:bg-[#3A2A0D] border-[#F59E0B]/40'
-                          : 'text-[#0F766E] dark:text-[#2DD4BF] bg-[#12C2A8]/10 border-[#12C2A8]/30'
-                      }`}
-                    >
-                      {suggestModoRespaldo
-                        ? 'cursos-service respondió en modo de respaldo (sin IA disponible) — revisa la sugerencia antes de publicar.'
-                        : 'Sugerencia generada por IA — puedes editarla libremente.'}
-                    </div>
+                    <p className={`text-xs font-semibold px-3 py-2 rounded-lg border ${suggestModoRespaldo ? 'text-[#B45309] dark:text-[#FBBF24] bg-[#FFFBEB] dark:bg-[#3A2A0D] border-[#F59E0B]/40' : 'text-[#0F766E] dark:text-[#2DD4BF] bg-[#12C2A8]/10 border-[#12C2A8]/30'}`}>
+                      {suggestModoRespaldo ? 'Sugerencia en modo de respaldo (sin IA): revísala antes de publicar.' : 'Sugerencia generada por IA: puedes editarla libremente.'}
+                    </p>
                   )}
-
                   {eligiblePrereqs.length === 0 ? (
-                    <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2]">Aún no tienes cursos activos de nivel inferior en esta categoría para marcar como prerequisito manualmente. Usa "Sugerir con IA" para consultar el catálogo completo de cursos-service.</p>
+                    <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">No hay cursos de un nivel menor en esta área para usar como prerrequisito.</p>
                   ) : (
                     <div className="space-y-2">
                       {eligiblePrereqs.map((c) => {
-                        const checked = prerequisites.includes(c.id);
+                        const marcado = prerequisites.includes(c.id);
                         return (
-                          <label
-                            key={c.id}
-                            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                              checked ? 'border-[#12C2A8] bg-[#12C2A8]/10' : 'border-[#DDE4ED] dark:border-[#1C3254] bg-[#F7F9FA] dark:bg-[#132A47]'
-                            }`}
-                          >
-                            <input type="checkbox" checked={checked} onChange={() => togglePrereq(c.id)} className="accent-[#12C2A8]" />
+                          <label key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${marcado ? 'border-[#12C2A8] bg-[#12C2A8]/10' : 'border-[#E1E6DF] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27]'}`}>
+                            <input type="checkbox" checked={marcado} onChange={() => togglePrereq(c.id)} className="accent-[#12C2A8]" />
                             <div className="min-w-0">
-                              <p className="text-sm font-semibold text-[#0B1F3A] dark:text-[#E2EBF6] truncate">{c.title}</p>
-                              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] capitalize">{c.level}</p>
+                              <p className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{c.title}</p>
+                              <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] capitalize">{c.level}</p>
                             </div>
                           </label>
                         );
                       })}
                     </div>
                   )}
-
-                  {unmatchedSuggestions.length > 0 && (
-                    <div className="p-3 rounded-xl border border-dashed border-[#DDE4ED] dark:border-[#1C3254]">
-                      <p className="text-xs font-semibold text-[#6B7A99] dark:text-[#8BA5C2] mb-1.5">
-                        cursos-service también sugirió estos cursos, pero no están en tu catálogo local todavía:
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {unmatchedSuggestions.map((p) => (
-                          <span key={p.id} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">
-                            {p.titulo}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>
 
+            {intento && problemas.length > 0 && (
+              <div role="alert" className="p-4 rounded-xl border border-[#F5A524]/40 bg-[#FBF3E4] dark:bg-[#3A2A0D]">
+                <p className="text-sm font-semibold text-[#B45309] dark:text-[#FBBF24] mb-1.5">Falta un poco para poder guardarlo:</p>
+                <ul className="list-disc pl-5 text-sm text-[#1F2D2A] dark:text-[#E6EFE9] space-y-0.5">
+                  {problemas.map((p) => <li key={p}>{p}</li>)}
+                </ul>
+              </div>
+            )}
             {submitError && (
-              <div className="p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
+              <div role="alert" className="p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
                 <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{submitError}</p>
               </div>
             )}
 
-            <Button variant="gradient" size="lg" className="w-full" disabled={!canSubmit} onClick={handleSubmit}>
-              {submitting ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Publicando...
-                </>
-              ) : isEditing ? (
-                'Guardar cambios'
-              ) : (
-                'Publicar curso'
-              )}
+            <Button variant="gradient" size="lg" className="w-full" disabled={submitting} onClick={handleSubmit}>
+              {submitting ? 'Guardando…' : esEdicion ? 'Guardar cambios' : 'Publicar curso'}
             </Button>
           </div>
 
-          {/* Preview */}
           <div className="lg:sticky lg:top-24">
-            <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] font-semibold uppercase tracking-wider mb-3">Vista previa en catálogo</p>
-            <div className="bg-white dark:bg-[#0F2240] border border-[#DDE4ED] dark:border-[#1C3254] rounded-2xl p-5 space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-md border border-[#DDE4ED] dark:border-[#1C3254] text-[#6B7A99] dark:text-[#8BA5C2] bg-[#F7F9FA] dark:bg-[#132A47]">{category}</span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-md border border-[#1E73E8]/30 text-[#1E73E8] bg-[#EFF6FF] dark:bg-[#0D1F3C] capitalize">{level}</span>
-              </div>
-              <div>
-                <h3 className="font-display font-bold text-[#0B1F3A] dark:text-[#E2EBF6] leading-snug">{title || 'Título del curso'}</h3>
-                <p className="text-sm text-[#6B7A99] dark:text-[#8BA5C2] mt-1 line-clamp-2 leading-relaxed">{description || 'La descripción de tu curso aparecerá aquí...'}</p>
-              </div>
-              {selectedSkills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedSkills.slice(0, 4).map((s) => (
-                    <span key={s} className="text-xs px-2 py-0.5 rounded-md bg-[#F7F9FA] dark:bg-[#132A47] text-[#6B7A99] dark:text-[#8BA5C2] border border-[#DDE4ED] dark:border-[#1C3254]">{s}</span>
-                  ))}
-                </div>
-              )}
-              <p className="text-xs text-[#6B7A99] dark:text-[#8BA5C2] pt-2 border-t border-[#EEF2F6] dark:border-[#1C3254]">
-                {prerequisites.length > 0 ? `${prerequisites.length} prerequisito(s)` : 'Sin prerequisitos'}
-              </p>
-            </div>
+            <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-semibold uppercase tracking-wider mb-3">Así se verá en el catálogo</p>
+            <CatalogCard course={vistaPrevia} onOpen={() => undefined} />
+            <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-3">
+              {prerequisites.length > 0 ? `${prerequisites.length} prerrequisito(s)` : 'Sin prerrequisitos'}
+            </p>
           </div>
         </div>
       </div>

@@ -45,6 +45,8 @@ const ROUTE_PATTERNS: { page: Page; pattern: string }[] = [
   { page: 'subscription', pattern: '/suscripcion' },
 ];
 
+const MARCA_STORAGE = 'gl_nav_marca';
+
 const ROLE_HOME: Record<UserRole, Page> = {
   user: 'home',
   publisher: 'my-courses',
@@ -76,7 +78,8 @@ interface NavigationContextValue {
   currentPage: Page;
   currentUser: SeedUser | null;
   paramId: string | null;
-  navigate: (page: Page, data?: { id?: string }) => void;
+  /** `replace: true` reemplaza la entrada actual del historial (para que «atrás» no vuelva a un formulario ya enviado). */
+  navigate: (page: Page, data?: { id?: string; replace?: boolean }) => void;
   goBack: () => void;
   canGoBack: boolean;
   login: (usuario: UsuarioQuemado) => Promise<void>;
@@ -116,9 +119,16 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
 
+  // Cada inicio de sesión tiene su propia "marca", y cada página que se abre dentro de la app la lleva en el
+  // historial del navegador. Así, si alguien entra con otro usuario, el botón «atrás» del navegador no lo lleva
+  // a pantallas que vio la sesión anterior (por ejemplo, la trivia de otra persona): esas entradas llevan otra
+  // marca y se reemplazan por el inicio de su rol.
+  const [marca, setMarca] = useState<string>(() => sessionStorage.getItem(MARCA_STORAGE) ?? '');
+
   const currentUser = userFromSession(session);
   const currentPage = resolvePage(location.pathname);
   const paramId = resolveParamId(location.pathname);
+  const marcaDeLaEntrada = (location.state as { marca?: string } | null)?.marca;
 
   useEffect(() => {
     if (!currentUser) {
@@ -127,34 +137,52 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       }
       return;
     }
+    const inicio = PAGE_PATHS[ROLE_HOME[currentUser.role]];
     if (currentPage === 'select-user' || currentPage === 'landing' || !ROLE_ALLOWED[currentUser.role].includes(currentPage)) {
-      routerNavigate(PAGE_PATHS[ROLE_HOME[currentUser.role]], { replace: true });
+      routerNavigate(inicio, { replace: true, state: { marca } });
+      return;
     }
-  }, [location.pathname, currentPage, currentUser, routerNavigate]);
+    // una entrada del historial de otra sesión: se manda al inicio en vez de mostrar pantallas ajenas
+    if (marca && marcaDeLaEntrada !== undefined && marcaDeLaEntrada !== marca && location.pathname !== inicio) {
+      routerNavigate(inicio, { replace: true, state: { marca } });
+    }
+  }, [location.pathname, currentPage, currentUser, routerNavigate, marca, marcaDeLaEntrada]);
+
+  function nuevaMarca(usuarioId: number) {
+    const valor = `${usuarioId}-${Date.now()}`;
+    sessionStorage.setItem(MARCA_STORAGE, valor);
+    setMarca(valor);
+    return valor;
+  }
 
   async function login(usuario: UsuarioQuemado) {
     const newSession = await loginBackend(usuario);
+    const valor = nuevaMarca(newSession.usuarioId);
     setSessionState(newSession);
     setSessionExpired(false);
-    routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(newSession.rol)]], { replace: true });
+    setNavCount(0);
+    routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(newSession.rol)]], { replace: true, state: { marca: valor } });
   }
 
   function logout() {
     logoutBackend();
+    sessionStorage.removeItem(MARCA_STORAGE);
+    setMarca('');
     setSessionState(null);
     setSessionExpired(false);
+    setNavCount(0);
     routerNavigate(PAGE_PATHS['select-user'], { replace: true });
   }
 
-  function navigate(page: Page, data?: { id?: string }) {
+  function navigate(page: Page, data?: { id?: string; replace?: boolean }) {
     let path = PAGE_PATHS[page];
     if (page === 'course-detail' && data?.id) {
       path = `${PAGE_PATHS['course-detail']}/${data.id}`;
     } else if (page === 'publish-course' && data?.id) {
       path = `/mis-cursos/${data.id}/editar`;
     }
-    setNavCount((c) => c + 1);
-    routerNavigate(path);
+    if (!data?.replace) setNavCount((c) => c + 1);
+    routerNavigate(path, { replace: data?.replace ?? false, state: { marca } });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 

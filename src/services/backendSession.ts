@@ -65,11 +65,23 @@ export async function send(url: string, init: RequestInit | undefined, servicio:
   }
 }
 
-// Si el proxy de Vite no logra llegar al servicio responde 5xx sin cuerpo JSON
+/** El mensaje que explica el error (los backends responden { "message": "..." }), o null si no vino. */
+async function mensajeDelServidor(res: Response): Promise<string | null> {
+  try {
+    const cuerpo = await res.clone().json();
+    return typeof cuerpo?.message === 'string' && cuerpo.message.trim() ? cuerpo.message : null;
+  } catch {
+    return null;
+  }
+}
+
+// Si el proxy de Vite no logra llegar al servicio responde 5xx sin cuerpo JSON.
+// Cuando el servicio sí explica el error (400, 409, 422...) ese mensaje es el que le llega a la persona.
 export async function readJson<T>(res: Response, servicio: string): Promise<T> {
   if (!res.ok) {
-    if (res.status >= 500) throw new BackendError(`${servicio} no responde (${res.status}). ¿Está corriendo?`, res.status);
-    throw new BackendError(`${servicio} respondió ${res.status}`, res.status);
+    const mensaje = await mensajeDelServidor(res);
+    if (res.status >= 500) throw new BackendError(mensaje ?? `${servicio} no responde (${res.status}). ¿Está corriendo?`, res.status);
+    throw new BackendError(mensaje ?? `${servicio} respondió ${res.status}`, res.status);
   }
   try {
     return (await res.json()) as T;
