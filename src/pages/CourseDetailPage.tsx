@@ -94,6 +94,7 @@ export default function CourseDetailPage() {
             <div className="flex flex-wrap items-center gap-2 mb-4">
               <Badge variant="default">{course.category}</Badge>
               <Badge variant={LEVEL_VARIANT[course.level]}>{LEVEL_LABEL[course.level]}</Badge>
+              {course.durationHours != null && <Badge variant="default">{course.durationHours} horas</Badge>}
               {course.status === 'inactive' && <Badge variant="danger">Dado de baja por el publicador</Badge>}
               {alreadyCompleted && <Badge variant="success">Completado</Badge>}
             </div>

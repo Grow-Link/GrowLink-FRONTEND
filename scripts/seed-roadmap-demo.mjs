@@ -14,19 +14,22 @@ const USUARIOS = process.env.USUARIOS_SERVICE_URL ?? 'http://localhost:8080';
 const CURSOS = process.env.CURSOS_SERVICE_URL ?? 'http://localhost:8086';
 
 // key -> curso. `pre` usa keys de este mismo catálogo y tiene que ir en orden
-// (los prerequisitos antes que quien los requiere).
+// (los prerequisitos antes que quien los requiere). duracionHoras: entero
+// 1-500 que ahora exige POST /api/cursos — mismo orden de magnitud que usa
+// CursoCatalogoSeeder de cursos-service (principiante ~20-30h, intermedio
+// ~35-50h, avanzado ~60h+).
 const CATALOGO = [
-  { key: 'mat1', titulo: 'Matemáticas Discretas', categoria: 'MATEMATICAS', nivel: 'PRINCIPIANTE', pre: [] },
-  { key: 'sis1', titulo: 'Fundamentos de Programación', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', pre: [] },
-  { key: 'sis2', titulo: 'Bases de Datos Relacionales', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', pre: [] },
-  { key: 'adm1', titulo: 'Contabilidad para no Contadores', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'PRINCIPIANTE', pre: [] },
-  { key: 'sis3', titulo: 'Programación Orientada a Objetos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', pre: ['sis1'] },
-  { key: 'adm2', titulo: 'Gestión de Proyectos Ágiles', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', pre: ['adm1', 'sis1'] },
-  { key: 'sis4', titulo: 'Estructuras de Datos y Algoritmos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', pre: ['sis3', 'mat1'] },
-  { key: 'sis5', titulo: 'Desarrollo Web Backend', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', pre: ['sis3', 'sis2'] },
-  { key: 'sis6', titulo: 'Arquitectura de Software', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', pre: ['sis4', 'sis5'] },
-  { key: 'adm3', titulo: 'Liderazgo de Equipos Técnicos', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', pre: ['adm2', 'sis5'] },
-  { key: 'sis7', titulo: 'Sistemas Distribuidos y Concurrencia', categoria: 'INGENIERIA_SISTEMAS', nivel: 'AVANZADO', pre: ['sis6'] },
+  { key: 'mat1', titulo: 'Matemáticas Discretas', categoria: 'MATEMATICAS', nivel: 'PRINCIPIANTE', duracionHoras: 30, pre: [] },
+  { key: 'sis1', titulo: 'Fundamentos de Programación', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', duracionHoras: 25, pre: [] },
+  { key: 'sis2', titulo: 'Bases de Datos Relacionales', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', duracionHoras: 30, pre: [] },
+  { key: 'adm1', titulo: 'Contabilidad para no Contadores', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'PRINCIPIANTE', duracionHoras: 20, pre: [] },
+  { key: 'sis3', titulo: 'Programación Orientada a Objetos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', duracionHoras: 30, pre: ['sis1'] },
+  { key: 'adm2', titulo: 'Gestión de Proyectos Ágiles', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', duracionHoras: 35, pre: ['adm1', 'sis1'] },
+  { key: 'sis4', titulo: 'Estructuras de Datos y Algoritmos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', duracionHoras: 45, pre: ['sis3', 'mat1'] },
+  { key: 'sis5', titulo: 'Desarrollo Web Backend', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', duracionHoras: 50, pre: ['sis3', 'sis2'] },
+  { key: 'sis6', titulo: 'Arquitectura de Software', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', duracionHoras: 45, pre: ['sis4', 'sis5'] },
+  { key: 'adm3', titulo: 'Liderazgo de Equipos Técnicos', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', duracionHoras: 30, pre: ['adm2', 'sis5'] },
+  { key: 'sis7', titulo: 'Sistemas Distribuidos y Concurrencia', categoria: 'INGENIERIA_SISTEMAS', nivel: 'AVANZADO', duracionHoras: 60, pre: ['sis6'] },
 ];
 
 const PERFIL = {
@@ -91,6 +94,7 @@ async function main() {
         descripcion: `Curso de prueba para HU-12 (${c.nivel.toLowerCase()}).`,
         categoria: c.categoria,
         nivel: c.nivel,
+        duracionHoras: c.duracionHoras,
         habilidadIds: [],
         publicadorUsuarioId: publicador.id,
         prerequisitoIds: c.pre.map((k) => idPorKey[k]),
