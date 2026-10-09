@@ -9,6 +9,12 @@ export interface RoadmapCursoInput {
   nivel: string;
   orden: number;
   prerequisitoIds: number[];
+  /** Contrato bono: además de lo de arriba, cada curso del roadmap ya trae esto. */
+  descripcion?: string;
+  /** null en datos viejos que no tenían duración cargada. */
+  duracionHoras?: number | null;
+  habilidades?: string[];
+  linkContenido?: string;
 }
 
 export type EstadoNodo = 'completed' | 'current' | 'available' | 'locked';
@@ -30,6 +36,10 @@ export interface GraphNode {
   externos: number[];
   /** Cursos de la ruta que tienen a este como prerequisito. */
   desbloquea: number[];
+  descripcion?: string;
+  duracionHoras?: number | null;
+  habilidades?: string[];
+  linkContenido?: string;
 }
 
 export interface GraphEdge {
@@ -99,6 +109,10 @@ export function buildRoadmapGraph(
       requiere: req,
       externos: [...new Set(c.prerequisitoIds)].filter((p) => !enRuta.has(p)),
       desbloquea: desbloquea.get(c.cursoId)!.sort((a, b) => porId.get(a)!.orden - porId.get(b)!.orden),
+      descripcion: c.descripcion,
+      duracionHoras: c.duracionHoras,
+      habilidades: c.habilidades,
+      linkContenido: c.linkContenido,
     };
   });
 

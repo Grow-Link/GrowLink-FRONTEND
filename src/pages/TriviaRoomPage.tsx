@@ -129,7 +129,6 @@ export default function TriviaRoomPage() {
 
   const [stage, setStage] = useState<Stage>('lobby');
   const [pestana, setPestana] = useState<PestanaLobby>('jugar');
-  const [personaRevancha, setPersonaRevancha] = useState<{ id: number; nombre: string } | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [sala, setSala] = useState<Sala | null>(null);
   const [retoActual, setRetoActual] = useState<Reto | null>(null);
@@ -162,6 +161,9 @@ export default function TriviaRoomPage() {
   const [winnerIds, setWinnerIds] = useState<number[]>([]);
   const [empate, setEmpate] = useState(false);
   const [detallePartida, setDetallePartida] = useState<DetallePartida | null>(null);
+  // revancha en la misma sala: quien la propone pasa a ser el anfitrión de la sala nueva y los demás reciben la invitación
+  const [invitacionRevancha, setInvitacionRevancha] = useState<{ nuevoCodigo: string; hostNombre: string } | null>(null);
+  const [proponiendoRevancha, setProponiendoRevancha] = useState(false);
 
   const socketRef = useRef<TriviaSocket | null>(null);
   const participantsRef = useRef<TriviaParticipant[]>([]);
@@ -260,6 +262,20 @@ export default function TriviaRoomPage() {
         obtenerPartida(msg.codigo).then(setDetallePartida).catch(() => undefined);
         break;
       }
+      case 'REVANCHA':
+        sonar('reto');
+        if (msg.hostUsuarioId === session.usuarioId) {
+          // la propuse yo: la sala nueva ya me tiene como anfitrión, entro a esperar
+          void obtenerSala(msg.nuevoCodigo).then((nueva) => {
+            if (!nueva) return;
+            limpiarPartida();
+            setRetoActual(null);
+            prepararComoHost(nueva);
+          });
+        } else {
+          setInvitacionRevancha({ nuevoCodigo: msg.nuevoCodigo, hostNombre: msg.hostNombre });
+        }
+        break;
       case 'ERROR':
         // Ruido conocido e inofensivo: el "unirse" del host choca con la fila que ya insertó POST /api/salas.
         if (!/sala_participante/i.test(msg.message)) setWsErrorMsg(msg.message);
@@ -399,6 +415,37 @@ export default function TriviaRoomPage() {
     socketRef.current?.responder(session.usuarioId, question.indice, idx);
   }
 
+  function limpiarPartida() {
+    setWsErrorMsg(null);
+    setStarting(false);
+    setPrevPositions({});
+    setQuestion(null);
+    setSelected(null);
+    setAnswered(false);
+    setAnswerResult(null);
+    setRacha(0);
+    rachaRef.current = 0;
+    setFinalRanking([]);
+    setWinnerIds([]);
+    setEmpate(false);
+    setDetallePartida(null);
+    setInvitacionRevancha(null);
+    setProponiendoRevancha(false);
+  }
+
+  function proponerRevancha() {
+    if (!session) return;
+    setProponiendoRevancha(true);
+    socketRef.current?.revancha(session.usuarioId, session.nombre);
+  }
+
+  function unirseARevancha() {
+    if (!invitacionRevancha) return;
+    const codigo = invitacionRevancha.nuevoCodigo;
+    limpiarPartida();
+    void unirseAlCodigo(codigo);
+  }
+
   function resetAll(destino: PestanaLobby = 'jugar') {
     joinedCodeRef.current = null;
     setStage('lobby');
@@ -424,6 +471,8 @@ export default function TriviaRoomPage() {
     setWinnerIds([]);
     setEmpate(false);
     setDetallePartida(null);
+    setInvitacionRevancha(null);
+    setProponiendoRevancha(false);
   }
 
   function alternarSonido() {
@@ -499,7 +548,7 @@ export default function TriviaRoomPage() {
 
           {pestana === 'retar' && (
             <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl p-5 sm:p-7">
-              <RetarPanel onRetoEnviado={alRetoEnviado} personaInicial={personaRevancha} />
+              <RetarPanel onRetoEnviado={alRetoEnviado} />
             </div>
           )}
 
@@ -687,7 +736,6 @@ export default function TriviaRoomPage() {
     const amIWinner = winnerIds.includes(session.usuarioId);
     const total = finalRanking.length;
     const ganadoresNombres = finalRanking.filter((p) => winnerIds.includes(Number(p.id))).map((p) => p.name);
-    const rival = total === 2 ? finalRanking.find((p) => !p.isCurrentUser) : undefined;
     const numPreguntas = sala?.numPreguntas ?? detallePartida?.partida.numPreguntas ?? 0;
 
     const titulo = amIWinner
@@ -754,12 +802,16 @@ export default function TriviaRoomPage() {
           )}
 
           <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3">
-            {rival && (
-              <Button variant="gradient" size="lg" onClick={() => { setPersonaRevancha({ id: Number(rival.id), nombre: rival.name }); resetAll('retar'); }}>
-                ⚔️ Revancha con {rival.name.split(' ')[0]}
+            {invitacionRevancha ? (
+              <Button variant="gradient" size="lg" onClick={unirseARevancha}>
+                ⚔️ {invitacionRevancha.hostNombre.split(' ')[0]} propone revancha: ¡unirme!
+              </Button>
+            ) : (
+              <Button variant="gradient" size="lg" onClick={proponerRevancha} disabled={proponiendoRevancha}>
+                {proponiendoRevancha ? 'Creando la revancha…' : '⚔️ Revancha en una sala nueva'}
               </Button>
             )}
-            <Button variant={rival ? 'secondary' : 'gradient'} size="lg" onClick={() => resetAll('jugar')}>Jugar otra vez</Button>
+            <Button variant="secondary" size="lg" onClick={() => resetAll('jugar')}>Jugar otra vez</Button>
             <Button variant="secondary" size="lg" onClick={() => resetAll('ganadores')}>Ver ganadores</Button>
             <Button variant="ghost" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>Salir</Button>
           </div>

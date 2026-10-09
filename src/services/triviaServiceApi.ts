@@ -17,6 +17,8 @@ export interface Sala {
   estado: string;
   numPreguntas: TriviaQuestionCount;
   duracionSegundos: TriviaSecondsPerQuestion;
+  /** Código de la sala de revancha si alguien ya la propuso; null si no hay. */
+  revanchaCodigo: string | null;
 }
 
 function parseSala(data: any): Sala {
@@ -27,6 +29,7 @@ function parseSala(data: any): Sala {
     estado: String(data?.estado ?? ''),
     numPreguntas: Number(data?.numPreguntas) as TriviaQuestionCount,
     duracionSegundos: Number(data?.duracionSegundos) as TriviaSecondsPerQuestion,
+    revanchaCodigo: data?.revanchaCodigo ?? null,
   };
 }
 
