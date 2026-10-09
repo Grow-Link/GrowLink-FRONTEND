@@ -2,6 +2,9 @@
 // (GET /api/roadmap/mio: cada curso con sus prerequisitoIds reales). Son
 // funciones puras, sin React, para poder razonar sobre ellas por separado.
 
+import { NIVEL_A_BACKEND } from '../services/cursosServiceApi';
+import type { RoadmapView } from './roadmapModel';
+
 export interface RoadmapCursoInput {
   cursoId: number;
   titulo: string;
@@ -123,6 +126,46 @@ export function buildRoadmapGraph(
 
   const etapas = nodes.length === 0 ? 0 : Math.max(...nodes.map((n) => n.etapa)) + 1;
   return { nodes, edges, etapas };
+}
+
+/**
+ * Convierte la vista real del roadmap (RoadmapView, de utils/roadmapModel —
+ * ya con status/prerequisitos resueltos contra lo que la persona completó)
+ * al modelo que dibuja el mapa ilustrado (RoadmapGraph.tsx), el mismo que
+ * usa el landing de muestra. `categoria` y `nivel` se guardan en su forma de
+ * enum del backend porque así los esperan categoriaDesdeEnum/nivelLabel
+ * dentro de RoadmapGraph.tsx.
+ */
+export function graphFromRoadmapView(vista: RoadmapView): RoadmapGraphModel {
+  const nodes = vista.nodes;
+  const porId = new Map(nodes.map((n) => [n.cursoId, n]));
+  const desbloqueaDe = new Map<number, number[]>(nodes.map((n) => [n.cursoId, []]));
+  nodes.forEach((n) => {
+    n.prerequisitos.forEach((p) => desbloqueaDe.get(p.cursoId)?.push(n.cursoId));
+  });
+
+  const graphNodes: GraphNode[] = nodes.map((n) => ({
+    id: n.cursoId,
+    titulo: n.titulo,
+    categoria: n.categoria,
+    nivel: NIVEL_A_BACKEND[n.nivel] ?? n.nivel,
+    orden: n.orden,
+    etapa: n.etapa,
+    estado: n.status === 'unavailable' ? 'locked' : n.status,
+    inactivo: n.status === 'unavailable',
+    requiere: n.prerequisitos.map((p) => p.cursoId),
+    externos: [],
+    desbloquea: (desbloqueaDe.get(n.cursoId) ?? []).sort((a, b) => (porId.get(a)?.orden ?? 0) - (porId.get(b)?.orden ?? 0)),
+    descripcion: n.descripcion,
+    duracionHoras: n.horas,
+    habilidades: n.habilidades,
+    linkContenido: n.link ?? undefined,
+  }));
+
+  const edges: GraphEdge[] = [];
+  graphNodes.forEach((n) => n.requiere.forEach((p) => edges.push({ from: p, to: n.id })));
+
+  return { nodes: graphNodes, edges, etapas: vista.stages.length };
 }
 
 export interface LayoutOptions {

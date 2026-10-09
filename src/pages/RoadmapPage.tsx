@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import ExamModal from '../components/ExamModal';
-import StageMap from '../components/roadmap/StageMap';
+import RoadmapGraph from '../components/RoadmapGraph';
 import NodePanel from '../components/roadmap/NodePanel';
 import { useNavigation } from '../store/NavigationContext';
 import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap } from '../services/roadmapApi';
 import { compartirPdfRoadmap, descargarPdfRoadmap, puedeCompartirPdf } from '../utils/roadmapPdf';
 import { timeAgo } from '../utils/format';
+import { graphFromRoadmapView } from '../utils/roadmapGraph';
 import type { RoadmapNode, RoadmapView } from '../utils/roadmapModel';
 
 // HU-12: el roadmap de la persona como un mapa por etapas. Cada curso es una parada; al tocarla se ve por qué
@@ -129,6 +130,8 @@ export default function RoadmapPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [seleccionado, examenDe, cerrarHoja]);
+
+  const grafo = useMemo(() => (vista ? graphFromRoadmapView(vista) : null), [vista]);
 
   if (!currentUser) return null;
   const tienePerfil = perfil?.completo ?? false;
@@ -341,7 +344,7 @@ export default function RoadmapPage() {
 
         {/* ---------------- mapa + panel ---------------- */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 mt-6 items-start">
-          <StageMap stages={vista.stages} selectedId={seleccionado} onSelect={setSeleccionado} />
+          {grafo && <RoadmapGraph graph={grafo} selectedId={seleccionado} onSelect={setSeleccionado} />}
 
           {esEscritorio ? (
             <aside className={`${card} sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto`} aria-label="Detalle del curso">
