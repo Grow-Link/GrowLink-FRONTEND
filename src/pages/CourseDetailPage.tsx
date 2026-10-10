@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
-import CategoryGlyph from '../components/CategoryGlyph';
+import CourseArt from '../components/CourseArt';
 import ExamModal from '../components/ExamModal';
 import { useNavigation } from '../store/NavigationContext';
 import { darDeBajaCurso, listarCompletados, obtenerCurso } from '../services/cursosServiceApi';
@@ -135,7 +135,7 @@ export default function CourseDetailPage() {
 
         <section className="rounded-3xl overflow-hidden border border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F]">
           <div className="relative h-28 sm:h-36">
-            <CategoryGlyph category={curso.category} className="w-full h-full" />
+            <CourseArt category={curso.category} seed={curso.id + curso.title} className="w-full h-full" grande />
           </div>
           <div className="p-5 sm:p-8">
             <div className="flex flex-wrap gap-2 mb-3">

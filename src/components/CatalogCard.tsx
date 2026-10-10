@@ -1,4 +1,5 @@
-import CategoryGlyph from './CategoryGlyph';
+import { useRef, type MouseEvent } from 'react';
+import CourseArt from './CourseArt';
 import type { Course } from '../types';
 
 const NIVEL_TEXTO: Record<Course['level'], string> = { principiante: 'Principiante', intermedio: 'Intermedio', avanzado: 'Avanzado' };
@@ -16,18 +17,45 @@ interface CatalogCardProps {
  * ayuda a decidir (área, nivel, horas, temas, examen, habilidades) y marca lo que ya es parte de tu camino.
  */
 export default function CatalogCard({ course, aprobado, enRoadmap, onOpen }: CatalogCardProps) {
+  const tarjeta = useRef<HTMLButtonElement>(null);
+
+  // la tarjeta se inclina un poco hacia el cursor y el brillo de la ilustración lo sigue (sin re-renderizar)
+  function alMover(e: MouseEvent<HTMLButtonElement>) {
+    const el = tarjeta.current;
+    if (!el || window.matchMedia('(pointer: coarse)').matches) return;
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    el.style.setProperty('--ry', `${((px - 0.5) * 9).toFixed(2)}deg`);
+    el.style.setProperty('--rx', `${((0.5 - py) * 7).toFixed(2)}deg`);
+    el.style.setProperty('--mx', `${(px * 100).toFixed(1)}%`);
+    el.style.setProperty('--my', `${(py * 100).toFixed(1)}%`);
+    el.style.setProperty('--lift', '-3px');
+  }
+
+  function alSalir() {
+    const el = tarjeta.current;
+    if (!el) return;
+    el.style.setProperty('--ry', '0deg');
+    el.style.setProperty('--rx', '0deg');
+    el.style.setProperty('--lift', '0px');
+  }
+
   const temas = course.syllabus?.length ?? 0;
   const habilidades = course.skills.slice(0, 3);
   const extra = course.skills.length - habilidades.length;
 
   return (
     <button
+      ref={tarjeta}
       type="button"
       onClick={onOpen}
-      className="group text-left bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden flex flex-col transition-all hover:-translate-y-0.5 hover:border-[#12C2A8]/60 hover:shadow-lg cursor-pointer"
+      onMouseMove={alMover}
+      onMouseLeave={alSalir}
+      className="gl-card-3d group text-left bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden flex flex-col transition-all hover:border-[#12C2A8]/60 cursor-pointer"
     >
-      <div className="relative h-20">
-        <CategoryGlyph category={course.category} className="w-full h-full" />
+      <div className="relative h-24">
+        <CourseArt category={course.category} seed={course.id + course.title} className="w-full h-full" />
         <div className="absolute top-2 left-2 right-2 flex flex-wrap gap-1.5">
           {aprobado && <span className="px-2 py-0.5 rounded-md bg-[#4CE07E] text-[#0F3D22] text-[11px] font-bold">✓ Aprobado</span>}
           {enRoadmap && !aprobado && <span className="px-2 py-0.5 rounded-md bg-[#F5A524] text-white text-[11px] font-bold">En tu roadmap</span>}

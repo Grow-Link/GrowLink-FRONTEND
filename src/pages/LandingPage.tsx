@@ -3,13 +3,13 @@ import heroLearner from '../imports/heroLearner.png';
 import logo from '../imports/logoGrowLink.png';
 import Button from '../components/Button';
 import LiveIndicator from '../components/LiveIndicator';
-import RoadmapGraph from '../components/RoadmapGraph';
+import AventuraMap from '../components/roadmap/AventuraMap';
 import Reveal from '../components/Reveal';
 import { useMouseTilt } from '../hooks/useMouseTilt';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import { CATEGORIAS_CURSOS as CATEGORIES } from '../services/cursosServiceApi';
-import type { RoadmapGraphModel } from '../utils/roadmapGraph';
+import { construirRoadmap, type RoadmapCursoDto, type RoadmapView } from '../utils/roadmapModel';
 
 const SECTIONS = [
   { id: 'hero', label: 'Inicio' },
@@ -26,44 +26,58 @@ const NAV_LINKS = [
   { label: 'Para publicadores', href: '#publicadores' },
 ];
 
-// Demo decorativa del landing (sin sesión, no hay roadmap real que mostrar) —
-// con la misma forma que arma buildRoadmapGraph() para cursos-service, así el
-// mapa ilustrado usa exactamente el mismo componente que la app real.
-const DEMO_ROADMAP_GRAPH: RoadmapGraphModel = {
-  etapas: 3,
-  nodes: [
-    { id: 1, titulo: 'Fundamentos de Programación', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', orden: 0, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [4, 5] },
-    { id: 2, titulo: 'Bases de Datos Relacionales', categoria: 'INGENIERIA_SISTEMAS', nivel: 'PRINCIPIANTE', orden: 1, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [4] },
-    { id: 3, titulo: 'Contabilidad para no Contadores', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'PRINCIPIANTE', orden: 2, etapa: 0, estado: 'completed', inactivo: false, requiere: [], externos: [], desbloquea: [6] },
-    { id: 4, titulo: 'Estructuras de Datos y Algoritmos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', orden: 3, etapa: 1, estado: 'current', inactivo: false, requiere: [1, 2], externos: [], desbloquea: [7] },
-    { id: 5, titulo: 'Redes y Sistemas Operativos', categoria: 'INGENIERIA_SISTEMAS', nivel: 'INTERMEDIO', orden: 4, etapa: 1, estado: 'available', inactivo: false, requiere: [1], externos: [], desbloquea: [] },
-    { id: 6, titulo: 'Finanzas Corporativas', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'INTERMEDIO', orden: 5, etapa: 1, estado: 'available', inactivo: false, requiere: [3], externos: [], desbloquea: [8] },
-    { id: 7, titulo: 'Inteligencia Artificial Aplicada', categoria: 'INGENIERIA_SISTEMAS', nivel: 'AVANZADO', orden: 6, etapa: 2, estado: 'locked', inactivo: false, requiere: [4], externos: [], desbloquea: [] },
-    { id: 8, titulo: 'Gestión Estratégica y de Proyectos', categoria: 'ADMINISTRACION_EMPRESAS', nivel: 'AVANZADO', orden: 7, etapa: 2, estado: 'locked', inactivo: false, requiere: [6], externos: [], desbloquea: [] },
-  ],
-  edges: [
-    { from: 1, to: 4 }, { from: 2, to: 4 }, { from: 1, to: 5 }, { from: 4, to: 7 },
-    { from: 3, to: 6 }, { from: 6, to: 8 },
-  ],
-};
+// Demo decorativa del landing (sin sesión, no hay roadmap real que mostrar): el mismo mapa que usa la app,
+// con un avance de ejemplo para que se vea cómo se siente.
+const curso = (
+  cursoId: number, titulo: string, categoria: string, etiqueta: string, nivel: string, orden: number,
+  prerequisitoIds: number[], horas: number, razon: string, temario: string[], habilidades: string[]
+): RoadmapCursoDto => ({
+  cursoId, titulo, categoria, categoriaEtiqueta: etiqueta, nivel, orden, prerequisitoIds, razon,
+  descripcion: '', duracionHoras: horas, temario, habilidades, linkContenido: null, activo: true, totalPreguntasExamen: 3, alternativas: [],
+});
+
+const SIS = ['INGENIERIA_SISTEMAS', 'Ingeniería de Sistemas'] as const;
+const DEMO_VISTA: RoadmapView = construirRoadmap(
+  {
+    id: 0,
+    usuarioId: 0,
+    metas: 'Quiero trabajar con datos y programación',
+    nivel: 'PRINCIPIANTE',
+    creadoEn: new Date().toISOString(),
+    generadoPor: null,
+    resumen: '',
+    intereses: [],
+    cursos: [
+      curso(1, 'Fundamentos de Programación', SIS[0], SIS[1], 'PRINCIPIANTE', 0, [], 24, 'Es la base de todo lo que sigue.', ['Algoritmos', 'Variables', 'Ciclos', 'Funciones'], ['Programación']),
+      curso(2, 'Python desde Cero', SIS[0], SIS[1], 'PRINCIPIANTE', 1, [], 30, 'Tu primer lenguaje, con ejemplos cortos.', ['Instalación', 'Tipos de datos', 'Archivos'], ['Python']),
+      curso(3, 'Bases de Datos Relacionales', SIS[0], SIS[1], 'PRINCIPIANTE', 2, [], 28, 'Aquí vive la información.', ['Modelo relacional', 'SQL', 'Consultas'], ['Bases de Datos']),
+      curso(4, 'Python Intermedio: Datos y Automatización', SIS[0], SIS[1], 'INTERMEDIO', 3, [2], 36, 'Pasas de scripts sueltos a programas útiles.', ['Pandas', 'Automatización', 'APIs'], ['Análisis de Datos']),
+      curso(5, 'Análisis de Datos con Python', SIS[0], SIS[1], 'INTERMEDIO', 4, [3, 4], 38, 'Aquí empiezas a responder preguntas con datos.', ['Limpieza', 'Visualización', 'Estadística básica'], ['Análisis de Datos']),
+      curso(6, 'Programación Orientada a Objetos', SIS[0], SIS[1], 'PRINCIPIANTE', 5, [1], 32, 'Organiza programas grandes.', ['Clases', 'Herencia', 'Patrones'], ['Ingeniería de Software']),
+      curso(7, 'Arquitectura de Software', SIS[0], SIS[1], 'INTERMEDIO', 6, [6], 36, 'Decisiones que se notan cuando el sistema crece.', ['Capas', 'Servicios', 'Pruebas'], ['Ingeniería de Software']),
+      curso(8, 'Inteligencia Artificial y Aprendizaje Automático', SIS[0], SIS[1], 'AVANZADO', 7, [5], 48, 'El último tramo de tu ruta.', ['Modelos', 'Entrenamiento', 'Evaluación'], ['Inteligencia Artificial']),
+    ],
+  },
+  new Set([1, 2, 3])
+);
 
 const STEPS = [
   {
     n: '01',
-    title: 'Cuéntanos tus metas',
-    desc: 'Tres checkpoints: tu meta, tus intereses y tu nivel. Menos de 3 minutos.',
+    title: 'Elige tu área y tu meta',
+    desc: 'Ves las áreas que hay hoy, escribes qué quieres lograr y desde dónde partes. Son tres minutos.',
     accent: '#0E8A7D',
   },
   {
     n: '02',
-    title: 'La IA arma tu roadmap',
-    desc: 'Un camino de cursos reales, con prerequisitos claros — no una lista genérica.',
+    title: 'Recibes tu mapa',
+    desc: 'Una ruta de cursos reales por etapas, con las horas, el temario y el enlace de cada uno.',
     accent: '#12C2A8',
   },
   {
     n: '03',
-    title: 'Aprende y compite',
-    desc: 'Avanza curso a curso y refuerza lo aprendido en salas de trivia en vivo.',
+    title: 'Avanza y sube de nivel',
+    desc: 'Cada curso se aprueba con un examen. Sumas horas, desbloqueas habilidades y retas a alguien a una trivia.',
     accent: '#4CE07E',
   },
 ];
@@ -73,14 +87,14 @@ const AUDIENCE = [
     key: 'learner',
     label: 'Para quien aprende',
     title: 'Un plan, no una lista de videos sueltos.',
-    points: ['Roadmap generado a tu medida', 'Prerequisitos claros entre cursos', 'Historial y habilidades desbloqueadas'],
+    points: ['Un mapa hecho a partir de tu meta, no de una lista general', 'Nivel, logros y una misión a la vez', 'Historial y habilidades que quedan a tu nombre'],
     accent: '#0E8A7D',
   },
   {
     key: 'publisher',
     label: 'Para quien enseña',
     title: 'Publica cursos que sí encajan en el camino de alguien.',
-    points: ['Prerequisitos sugeridos por IA, editables', 'Panel de tus cursos activos', 'Preguntas de trivia para tu categoría'],
+    points: ['Temario, horas y examen propios en cada curso', 'Prerequisitos sugeridos, editables', 'Preguntas de trivia para tu área'],
     accent: '#12C2A8',
   },
 ];
@@ -261,14 +275,18 @@ export default function LandingPage() {
             <div>
               <div className="flex items-center gap-3 flex-wrap mb-7">
                 <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Plataforma de crecimiento</span>
+                <span className="hidden sm:inline-flex items-center gap-2 text-[11px] font-mono text-[#98B0A6] border border-white/10 rounded-full px-3 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F5A524] live-pulse" />
+                  misión: dejar de adivinar
+                </span>
               </div>
               <h1 className="text-5xl sm:text-6xl xl:text-[5rem] font-display font-bold text-white leading-[0.98] tracking-tight mb-7">
                 Deja de<br />adivinar<br />
                 <span className="gl-gradient-text">qué estudiar.</span>
               </h1>
               <p className="text-[#98B0A6] text-lg leading-relaxed max-w-md mb-10">
-                GrowLink convierte tus metas en un roadmap real de cursos con prerequisitos claros, y lo refuerza con
-                trivia competitiva en vivo — para que lo aprendido se quede.
+                Elige una meta y GrowLink la vuelve un mapa de cursos reales, con prerequisitos claros. Cada examen que
+                apruebas sube tu nivel, y la trivia en vivo te ayuda a que lo aprendido se quede.
               </p>
               <div className="flex flex-wrap items-center gap-5 mb-12">
                 <Button variant="gradient" size="lg" onClick={() => navigate('select-user')}>
@@ -287,8 +305,8 @@ export default function LandingPage() {
               <div className="flex flex-wrap gap-8 border-t border-white/10 pt-7">
                 {[
                   { value: '70%', label: 'para aprobar cada examen' },
-                  { value: String(CATEGORIES.length), label: 'Categorías' },
-                  { value: '3', label: 'Roles distintos' },
+                  { value: String(CATEGORIES.length), label: 'Áreas de estudio' },
+                  { value: '5', label: 'Niveles por subir' },
                 ].map((s) => (
                   <div key={s.label}>
                     <p className="text-3xl font-mono font-bold text-white">{s.value}</p>
@@ -300,6 +318,22 @@ export default function LandingPage() {
 
             {/* Right: interactive 3D photo — full image, native transparent background */}
             <div className="gl-perspective relative">
+              <div className="hidden sm:block absolute z-20 top-2 left-0 xl:-left-6 gl-float rounded-xl bg-[#15231F]/85 backdrop-blur border border-white/10 px-3.5 py-2.5 shadow-xl">
+                <p className="text-[10px] font-mono uppercase tracking-widest text-[#98B0A6]">Nivel 3</p>
+                <p className="text-sm font-display font-bold text-white">Con ritmo</p>
+                <div className="mt-1.5 h-1.5 w-28 rounded-full bg-white/10 overflow-hidden"><div className="h-full w-[43%] gl-gradient" /></div>
+              </div>
+              <div className="hidden sm:flex absolute z-20 top-1/3 right-0 xl:-right-4 gl-float items-center gap-2.5 rounded-xl bg-[#15231F]/85 backdrop-blur border border-[#F5A524]/40 px-3.5 py-2.5 shadow-xl" style={{ animationDelay: '-2s' }}>
+                <span className="w-7 h-7 rounded-full bg-[#F5A524] text-white flex items-center justify-center text-xs">★</span>
+                <div>
+                  <p className="text-[10px] font-mono uppercase tracking-widest text-[#F5D98B]">Logro</p>
+                  <p className="text-sm font-display font-bold text-white">Primer paso</p>
+                </div>
+              </div>
+              <div className="hidden sm:block absolute z-20 bottom-6 left-4 xl:left-0 gl-float rounded-xl bg-[#15231F]/85 backdrop-blur border border-white/10 px-3.5 py-2.5 shadow-xl" style={{ animationDelay: '-4s' }}>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-[#98B0A6]">Examen aprobado</p>
+                <p className="text-sm font-display font-bold text-[#4CE07E]">+30 h de avance</p>
+              </div>
               <div ref={heroRef} className="gl-tilt gl-cursor-glow relative mx-auto w-full max-w-2xl">
                 <div
                   className="gl-tilt-layer absolute -inset-10 rounded-full bg-gradient-to-br from-[#12C2A8]/25 to-[#0E8A7D]/10 blur-[70px]"
@@ -364,26 +398,29 @@ export default function LandingPage() {
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-12 items-center">
             <Reveal>
-              <span className="text-[#0E8A7D] text-xs font-mono font-semibold tracking-widest uppercase">Roadmap con IA</span>
+              <span className="text-[#0E8A7D] text-xs font-mono font-semibold tracking-widest uppercase">Tu mapa</span>
               <h2 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-3 mb-5 leading-tight">
                 Un camino real,<br />no una lista de tareas.
               </h2>
               <p className="text-[#6B7A74] dark:text-[#98B0A6] leading-relaxed mb-6 max-w-md">
-                Cada curso conectado a sus prerequisitos reales. Ves exactamente dónde estás parado y qué sigue —
-                pasa el mouse sobre cualquier paso.
+                Cada parada trae sus horas, su temario y lo que se abre después. Ves dónde estás, qué sigue y cuánto te falta
+                para subir de nivel. Pasa el mouse por cualquier paso para ver los detalles.
               </p>
+              <ul className="flex flex-wrap gap-2 mb-7">
+                {['Nivel y barra de avance', 'Logros que se desbloquean', 'Una misión a la vez'].map((c) => (
+                  <li key={c} className="inline-flex items-center gap-1.5 rounded-full border border-[#F5A524]/40 bg-[#F5A524]/10 px-3 py-1 text-xs font-medium text-[#B45309] dark:text-[#FBBF24]">
+                    <span aria-hidden="true">★</span>
+                    {c}
+                  </li>
+                ))}
+              </ul>
               <Button variant="secondary" onClick={() => navigate('select-user')}>
-                Genera el tuyo
+                Arma el tuyo
               </Button>
             </Reveal>
             <Reveal delay={150}>
-              <div className="max-w-[560px] mx-auto rounded-2xl shadow-2xl shadow-[#1F2D2A]/15 dark:shadow-none border border-white dark:border-white/10">
-                <RoadmapGraph
-                  graph={DEMO_ROADMAP_GRAPH}
-                  selectedId={null}
-                  onSelect={() => navigate('select-user')}
-                  compact
-                />
+              <div className="max-w-[760px] mx-auto rounded-2xl shadow-2xl shadow-[#1F2D2A]/15 dark:shadow-none border border-white dark:border-white/10">
+                <AventuraMap vista={DEMO_VISTA} selectedId={null} onSelect={() => navigate('select-user')} />
               </div>
             </Reveal>
           </div>
@@ -425,8 +462,8 @@ export default function LandingPage() {
                 Refuerza lo aprendido<br />compitiendo en vivo.
               </h2>
               <p className="text-[#98B0A6] leading-relaxed mb-6 max-w-md">
-                Crea una sala, comparte el código, y compite por puntaje con velocidad de respuesta. Leaderboard y
-                podio animados, en tiempo real.
+                Crea una sala, o reta a alguien por su nombre. Responder rápido suma más puntos, las rachas se notan y al
+                final hay podio, detalle de la partida y un salón de la fama.
               </p>
               <Button variant="gradient" onClick={() => navigate('select-user')}>
                 Entrar a una sala
@@ -449,18 +486,9 @@ export default function LandingPage() {
                 <path d="M10 8c-3.3 0-6 2.7-6 6v10h10V14H8c0-1.1.9-2 2-2V8zm14 0c-3.3 0-6 2.7-6 6v10h10V14h-6c0-1.1.9-2 2-2V8z" />
               </svg>
               <p className="relative z-10 text-xl sm:text-2xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] leading-snug mb-6">
-                Pasé de no saber por dónde empezar a tener un camino claro, curso por curso. La trivia con mis
-                compañeros fue lo que hizo que de verdad se me quedara.
+                Estudiar sin plan cansa. Con un mapa, cada sesión tiene un destino y cada examen se nota en tu avance.
               </p>
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-10 h-10 rounded-full gl-gradient flex items-center justify-center text-white text-sm font-display font-bold shrink-0">
-                  VR
-                </div>
-                <div className="text-left">
-                  <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9] font-semibold">Valentina Ríos</p>
-                  <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">Analista Junior · Grupo Financiero Norte</p>
-                </div>
-              </div>
+              <p className="relative z-10 text-sm text-[#6B7A74] dark:text-[#98B0A6]">El equipo de GrowLink</p>
             </div>
           </Reveal>
         </div>
@@ -477,7 +505,7 @@ export default function LandingPage() {
                 Tu próximo salto<br /><span className="gl-gradient-text">empieza aquí.</span>
               </h2>
               <p className="text-[#98B0A6] text-lg max-w-xl mx-auto mb-9">
-                Sin tarjeta, sin fricción — elige un perfil de demostración y explora GrowLink ahora mismo.
+                Sin tarjeta ni registro: elige un perfil de demostración y arma tu primer mapa.
               </p>
               <Button variant="gradient" size="lg" onClick={() => navigate('select-user')}>
                 Probar GrowLink ahora

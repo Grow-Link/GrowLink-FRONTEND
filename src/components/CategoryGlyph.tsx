@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElement }> = {
+export const CATEGORY_STYLE: Record<string, { from: string; to: string; icon: ReactElement }> = {
   'Ingeniería de Sistemas': {
     from: '#0E8A7D', to: '#12C2A8',
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />,

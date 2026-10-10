@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import ExamModal from '../components/ExamModal';
-import RoadmapGraph from '../components/RoadmapGraph';
+import AventuraMap from '../components/roadmap/AventuraMap';
+import AventuraHud from '../components/roadmap/AventuraHud';
 import NodePanel from '../components/roadmap/NodePanel';
 import { useNavigation } from '../store/NavigationContext';
 import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap } from '../services/roadmapApi';
 import { compartirPdfRoadmap, descargarPdfRoadmap, puedeCompartirPdf } from '../utils/roadmapPdf';
 import { timeAgo } from '../utils/format';
-import { graphFromRoadmapView } from '../utils/roadmapGraph';
 import type { RoadmapNode, RoadmapView } from '../utils/roadmapModel';
 
 // HU-12: el roadmap de la persona como un mapa por etapas. Cada curso es una parada; al tocarla se ve por qué
@@ -49,34 +49,6 @@ function useEsEscritorio() {
     return () => m.removeEventListener('change', alCambiar);
   }, []);
   return esEscritorio;
-}
-
-function Anillo({ porcentaje }: { porcentaje: number }) {
-  const largo = 2 * Math.PI * 46;
-  return (
-    <div className="relative w-28 h-28 shrink-0">
-      <svg viewBox="0 0 110 110" className="w-full h-full -rotate-90" aria-hidden="true">
-        <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="9" />
-        <circle
-          cx="55"
-          cy="55"
-          r="46"
-          fill="none"
-          stroke="#F5D98B"
-          strokeWidth="9"
-          strokeLinecap="round"
-          strokeDasharray={largo}
-          strokeDashoffset={largo * (1 - porcentaje / 100)}
-          className="gl-ring-draw"
-          style={{ ['--ring-total' as string]: largo }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-        <span className="text-3xl font-display font-extrabold leading-none">{porcentaje}%</span>
-        <span className="text-[10px] uppercase tracking-wider opacity-80 mt-1">de tu ruta</span>
-      </div>
-    </div>
-  );
 }
 
 export default function RoadmapPage() {
@@ -130,8 +102,6 @@ export default function RoadmapPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [seleccionado, examenDe, cerrarHoja]);
-
-  const grafo = useMemo(() => (vista ? graphFromRoadmapView(vista) : null), [vista]);
 
   if (!currentUser) return null;
   const tienePerfil = perfil?.completo ?? false;
@@ -259,21 +229,8 @@ export default function RoadmapPage() {
                 <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Armado {timeAgo(vista.creadoEn)}</span>
               </div>
             </div>
-            <Anillo porcentaje={vista.progreso.porcentaje} />
           </div>
 
-          <dl className="relative grid grid-cols-3 gap-2 sm:gap-4 mt-6">
-            {[
-              { valor: `${vista.progreso.completados}/${vista.progreso.total}`, etiqueta: 'cursos aprobados' },
-              { valor: `${vista.progreso.horasHechas}/${vista.progreso.horasTotales} h`, etiqueta: 'de estudio' },
-              { valor: `${vista.progreso.habilidadesDesbloqueadas.length}/${vista.progreso.habilidadesTotales.length}`, etiqueta: 'habilidades' },
-            ].map((d) => (
-              <div key={d.etiqueta} className="rounded-2xl bg-white/12 backdrop-blur-sm px-3 py-3 text-center">
-                <dd className="text-base sm:text-2xl font-display font-bold whitespace-nowrap">{d.valor}</dd>
-                <dt className="text-[11px] sm:text-xs text-[#D3EEE8]">{d.etiqueta}</dt>
-              </div>
-            ))}
-          </dl>
         </section>
 
         {/* ---------------- acciones ---------------- */}
@@ -309,42 +266,15 @@ export default function RoadmapPage() {
             <Button size="sm" onClick={actualizarRoadmap} disabled={generando}>Actualizar ahora</Button>
           </div>
         )}
-        {terminado && (
-          <div className={`${card} mt-4 p-5 text-center`}>
-            <p className="text-4xl">🏆</p>
-            <h2 className="font-display font-bold text-xl text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">¡Completaste toda tu ruta!</h2>
-            <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mt-1">Estás listo para el siguiente reto. Define una meta nueva y seguimos creciendo.</p>
-            <div className="flex flex-wrap justify-center gap-2.5 mt-4">
-              <Button variant="gradient" onClick={() => navigate('onboarding')}>Definir una nueva meta</Button>
-              <Button variant="secondary" onClick={() => navigate('trivia')}>Celebrar con una trivia</Button>
-            </div>
-          </div>
-        )}
 
-        {/* ---------------- siguiente paso (atajo) ---------------- */}
-        {vista.siguiente && !terminado && (
-          <button
-            type="button"
-            onClick={() => setSeleccionado(vista.siguiente!.cursoId)}
-            className="mt-4 w-full text-left rounded-2xl border-2 border-[#F5A524] bg-[#FFFBEB] dark:bg-[#3A2A0D]/60 px-4 py-3.5 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
-          >
-            <span className="w-10 h-10 rounded-full bg-[#F5A524] text-white flex items-center justify-center gl-soft-pulse shrink-0">
-              <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#B45309] dark:text-[#FBBF24]">Tu siguiente paso</span>
-              <span className="block font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] truncate">{vista.siguiente.titulo}</span>
-              <span className="block text-xs text-[#6B7A74] dark:text-[#98B0A6]">
-                {vista.siguiente.horas != null ? `${vista.siguiente.horas} horas · ` : ''}toca para ver cómo empezar
-              </span>
-            </span>
-            <span aria-hidden="true" className="text-[#B45309] text-xl">→</span>
-          </button>
-        )}
+        {/* ---------------- nivel, logros y misión ---------------- */}
+        <div className="mt-4">
+          <AventuraHud vista={vista} onSelect={setSeleccionado} onTakeExam={setExamenDe} onNuevaMeta={() => navigate('onboarding')} />
+        </div>
 
         {/* ---------------- mapa + panel ---------------- */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 mt-6 items-start">
-          {grafo && <RoadmapGraph graph={grafo} selectedId={seleccionado} onSelect={setSeleccionado} />}
+          <AventuraMap vista={vista} selectedId={seleccionado} onSelect={setSeleccionado} />
 
           {esEscritorio ? (
             <aside className={`${card} sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto`} aria-label="Detalle del curso">

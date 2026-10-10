@@ -339,3 +339,53 @@ html.dark .gl-card-hover:hover {
     animation: none !important;
   }
 }
+
+/* ---- Catálogo: ilustraciones de curso con movimiento ---- */
+@keyframes blobA {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(18px, -12px) scale(1.18); }
+}
+@keyframes blobB {
+  0%, 100% { transform: translate(0, 0) scale(1.1); }
+  50% { transform: translate(-16px, 14px) scale(0.92); }
+}
+@keyframes iconBob {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-7px) rotate(3deg); }
+}
+@keyframes gridDrift {
+  from { background-position: 0 0; }
+  to { background-position: 28px 28px; }
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.7); }
+  50% { opacity: 0.95; transform: scale(1.15); }
+}
+.gl-art-blob-a { animation: blobA var(--dur, 7s) ease-in-out infinite; }
+.gl-art-blob-b { animation: blobB var(--dur, 9s) ease-in-out infinite; }
+.gl-art-bob { animation: iconBob 4.2s ease-in-out infinite; }
+.gl-art-grid { animation: gridDrift 6s linear infinite; }
+@keyframes artSpin { to { transform: rotate(360deg); } }
+.gl-art-spin { animation: artSpin 18s linear infinite; }
+.gl-art-spark { animation: twinkle var(--dur, 3s) ease-in-out infinite; }
+
+/* tarjeta con inclinación y brillo que siguen al cursor (las variables las pone CatalogCard) */
+.gl-card-3d {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(var(--lift, 0px));
+  transition: transform 0.18s ease-out, box-shadow 0.2s ease, border-color 0.2s ease;
+  transform-style: preserve-3d;
+}
+.gl-card-3d:hover {
+  box-shadow: 0 22px 40px -22px rgba(14, 138, 125, 0.55);
+}
+.gl-art-shine {
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 40%), rgba(255, 255, 255, 0.38), transparent 62%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.gl-card-3d:hover .gl-art-shine { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-art-blob-a, .gl-art-blob-b, .gl-art-bob, .gl-art-grid, .gl-art-spin, .gl-art-spark { animation: none !important; }
+  .gl-card-3d { transform: none !important; }
+}

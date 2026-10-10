@@ -15,7 +15,7 @@ const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string 
 const ROLE_ORDER: UserRole[] = ['user', 'publisher', 'admin'];
 
 export default function UserSelectPage() {
-  const { login, sessionExpired } = useNavigation();
+  const { login, sessionExpired, navigate } = useNavigation();
   const { isDark, toggle } = useTheme();
 
   const [usuarios, setUsuarios] = useState<UsuarioQuemado[] | null>(null);
@@ -107,6 +107,14 @@ export default function UserSelectPage() {
       <div className="flex-1 flex items-center justify-center p-5 sm:p-8 bg-[#F6F7F2] dark:bg-[#0E1815]">
         <div className="w-full max-w-xl">
           <img src={logo} alt="GrowLink" className="h-12 w-auto max-w-[180px] object-contain mb-8 lg:hidden" />
+
+          <button
+            type="button"
+            onClick={() => navigate('landing')}
+            className="inline-flex items-center gap-2 text-sm font-medium text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#0E8A7D] dark:hover:text-[#5FD3C2] mb-6 cursor-pointer transition-colors"
+          >
+            <span aria-hidden="true">←</span> Volver a la página principal
+          </button>
 
           <div className="mb-8">
             <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Acceso de demostración</span>
