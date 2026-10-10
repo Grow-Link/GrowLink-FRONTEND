@@ -43,9 +43,13 @@ jobs:
         id: imagen
         run: |
           DUENO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          IMAGEN="ghcr.io/${DUENO}/growlink-frontend:${{ github.ref_name }}"
-          docker build -t "$IMAGEN" .
+          BASE="ghcr.io/${DUENO}/growlink-frontend"
+          # la etiqueta lleva el SHA del commit: si fuera siempre la misma (main), Azure vería el mismo nombre de imagen
+          # y no la volvería a bajar, así que el sitio se quedaría con la versión anterior
+          IMAGEN="$BASE:${{ github.sha }}"
+          docker build -t "$IMAGEN" -t "$BASE:${{ github.ref_name }}" .
           docker push "$IMAGEN"
+          docker push "$BASE:${{ github.ref_name }}"
           echo "nombre=$IMAGEN" >> "$GITHUB_OUTPUT"
 
       # las URLs de los servicios y el puerto se configuran en la App Service (ver README)
