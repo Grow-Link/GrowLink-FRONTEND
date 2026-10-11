@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import ExamModal from '../components/ExamModal';
-import AventuraMap from '../components/roadmap/AventuraMap';
+import MundoMap, { type TemaMundo } from '../components/roadmap/MundoMap';
 import AventuraHud from '../components/roadmap/AventuraHud';
 import NodePanel from '../components/roadmap/NodePanel';
 import { useNavigation } from '../store/NavigationContext';
@@ -51,6 +51,17 @@ function useEsEscritorio() {
   return esEscritorio;
 }
 
+const CLAVE_VISTA = 'gl_vista_roadmap';
+
+function temaGuardado(): TemaMundo {
+  try {
+    const v = localStorage.getItem(CLAVE_VISTA);
+    return v === 'dia' || v === 'camino' ? 'dia' : 'noche';
+  } catch {
+    return 'noche';
+  }
+}
+
 export default function RoadmapPage() {
   const { navigate, currentUser } = useNavigation();
   const esEscritorio = useEsEscritorio();
@@ -67,6 +78,7 @@ export default function RoadmapPage() {
   const [logro, setLogro] = useState<string | null>(null);
   const [pdf, setPdf] = useState<'idle' | 'descargando' | 'compartiendo'>('idle');
   const [errorPdf, setErrorPdf] = useState<string | null>(null);
+  const [tipoMapa, setTipoMapa] = useState<TemaMundo>(temaGuardado);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -92,6 +104,15 @@ export default function RoadmapPage() {
     const id = window.setTimeout(() => setLogro(null), 7000);
     return () => window.clearTimeout(id);
   }, [logro]);
+
+  function cambiarMapa(t: TemaMundo) {
+    setTipoMapa(t);
+    try {
+      localStorage.setItem(CLAVE_VISTA, t);
+    } catch {
+      /* sin almacenamiento: la elección vale solo para esta visita */
+    }
+  }
 
   const cerrarHoja = useCallback(() => setSeleccionado(null), []);
   useEffect(() => {
@@ -274,7 +295,32 @@ export default function RoadmapPage() {
 
         {/* ---------------- mapa + panel ---------------- */}
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 mt-6 items-start">
-          <AventuraMap vista={vista} selectedId={seleccionado} onSelect={setSeleccionado} />
+          <div className="min-w-0">
+            <div role="tablist" aria-label="Momento del día del mapa" className="inline-flex p-1 mb-3 rounded-xl bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]">
+              {([['noche', 'Noche'], ['dia', 'Día']] as [TemaMundo, string][]).map(([clave, texto]) => (
+                <button
+                  key={clave}
+                  type="button"
+                  role="tab"
+                  aria-selected={tipoMapa === clave}
+                  onClick={() => cambiarMapa(clave)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
+                    tipoMapa === clave ? 'gl-gradient text-white shadow' : 'text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9]'
+                  }`}
+                >
+                  <svg className="inline w-4 h-4 mr-1.5 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    {clave === 'noche' ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4L7 17M17 7l1.4-1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    )}
+                  </svg>
+                  {texto}
+                </button>
+              ))}
+            </div>
+            <MundoMap vista={vista} selectedId={seleccionado} onSelect={setSeleccionado} tema={tipoMapa} />
+          </div>
 
           {esEscritorio ? (
             <aside className={`${card} sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto`} aria-label="Detalle del curso">

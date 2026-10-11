@@ -389,3 +389,115 @@ html.dark .gl-card-hover:hover {
   .gl-art-blob-a, .gl-art-blob-b, .gl-art-bob, .gl-art-grid, .gl-art-spin, .gl-art-spark { animation: none !important; }
   .gl-card-3d { transform: none !important; }
 }
+
+/* ---- Roadmap "constelación": cielo, energía que viaja por el camino y destellos al aprobar ---- */
+@keyframes constFlow {
+  to { stroke-dashoffset: -22; }
+}
+.gl-const-flow {
+  stroke-dasharray: 8 14;
+  animation: constFlow 1s linear infinite;
+}
+@keyframes constPulse {
+  0% { transform: scale(1); opacity: 0.75; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+.gl-const-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: constPulse 2.2s ease-out infinite;
+}
+@keyframes constBreath {
+  0%, 100% { filter: drop-shadow(0 0 5px var(--glow)); }
+  50% { filter: drop-shadow(0 0 15px var(--glow)); }
+}
+.gl-const-breath {
+  animation: constBreath 2.6s ease-in-out infinite;
+}
+@keyframes constShoot {
+  0% { transform: translate3d(0, 0, 0) rotate(-28deg); opacity: 0; }
+  2% { opacity: 1; }
+  11% { transform: translate3d(-360px, 200px, 0) rotate(-28deg); opacity: 0; }
+  100% { transform: translate3d(-360px, 200px, 0) rotate(-28deg); opacity: 0; }
+}
+.gl-const-shoot {
+  animation: constShoot var(--dur, 12s) linear var(--delay, 0s) infinite;
+}
+@keyframes constBurst {
+  from { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(2.7); opacity: 0; }
+}
+.gl-const-burst {
+  animation: constBurst 1.1s ease-out forwards;
+}
+@keyframes constSpark {
+  from { transform: rotate(var(--a)) translateY(-18px); opacity: 1; }
+  to { transform: rotate(var(--a)) translateY(-78px); opacity: 0; }
+}
+.gl-const-spark {
+  animation: constSpark 1.3s ease-out forwards;
+}
+@keyframes constAurora {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.55; }
+  50% { transform: translate(40px, 14px) scale(1.15); opacity: 0.9; }
+}
+.gl-const-aurora {
+  animation: constAurora 14s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-const-flow, .gl-const-pulse, .gl-const-breath, .gl-const-shoot, .gl-const-burst, .gl-const-spark, .gl-const-aurora {
+    animation: none !important;
+  }
+}
+
+/* ---- Personaje del roadmap (el brote) ---- */
+@keyframes broteBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.6px); }
+}
+@keyframes brotePaso {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3.2px); }
+}
+@keyframes broteCorre {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-2.6px) rotate(2deg); }
+}
+@keyframes broteSalto {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  15% { transform: translateY(0) scale(1.08, 0.9); }
+  45% { transform: translateY(-14px) scale(0.96, 1.06); }
+  75% { transform: translateY(0) scale(1.06, 0.94); }
+}
+@keyframes hojaMece {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+.gl-brote-cuerpo { animation: broteBob 2.4s ease-in-out infinite; }
+.gl-brote-hojas { animation: hojaMece 3.2s ease-in-out infinite; }
+.gl-brote-camina .gl-brote-cuerpo { animation: broteCorre 0.4s ease-in-out infinite; transform-origin: 32px 74px; }
+.gl-brote-camina .gl-brote-pie-i { animation: brotePaso 0.4s ease-in-out infinite; }
+.gl-brote-camina .gl-brote-pie-d { animation: brotePaso 0.4s ease-in-out 0.2s infinite; }
+.gl-brote-celebra .gl-brote-todo { animation: broteSalto 0.8s ease-out 3; }
+
+/* el globo de texto del personaje y la pantalla de cambio */
+@keyframes globoEntra {
+  from { opacity: 0; transform: translate(-50%, -100%) translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -100%) translateY(0) scale(1); }
+}
+.gl-globo { animation: globoEntra 0.22s ease-out; }
+@keyframes tarjetaEntra {
+  from { opacity: 0; transform: scale(0.9) translateY(14px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.gl-cambio-tarjeta { animation: tarjetaEntra 0.42s cubic-bezier(0.34, 1.4, 0.64, 1); }
+@keyframes rayosGiran { to { transform: rotate(360deg); } }
+.gl-cambio-rayos { animation: rayosGiran 24s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-brote-cuerpo, .gl-brote-hojas, .gl-brote-camina .gl-brote-cuerpo, .gl-brote-camina .gl-brote-pie-i,
+  .gl-brote-camina .gl-brote-pie-d, .gl-brote-celebra .gl-brote-todo, .gl-globo, .gl-cambio-tarjeta, .gl-cambio-rayos {
+    animation: none !important;
+  }
+}
