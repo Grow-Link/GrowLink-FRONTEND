@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
-import Planta, { MacetaVacia, SemillaIcono } from '../components/garden/Planta';
+import { MacetaVacia, SemillaIcono } from '../components/garden/Planta';
+import EscenaJardin from '../components/garden/EscenaJardin';
 import { useNavigation } from '../store/NavigationContext';
 import {
   obtenerJardin,
@@ -12,7 +13,6 @@ import {
   type SemillaJardin,
 } from '../services/usuariosServiceApi';
 import { sonar } from '../utils/sonidos';
-import { ETAPA_LABEL } from '../utils/jardin';
 import { timeAgo } from '../utils/format';
 
 // El Jardín: una semilla por cada roadmap completado, una gota por cada trivia ganada. Todo el estado
@@ -34,21 +34,6 @@ function Spinner() {
 function GotaIcono({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2.5c3 4.2 7 9 7 12.8a7 7 0 11-14 0c0-3.8 4-8.6 7-12.8Z" />
-    </svg>
-  );
-}
-
-/** La gota que cae cuando se riega — una sola vez, reusa el keyframe `escCae` que ya existe para las ilustraciones. */
-function GotaCayendo() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="#5FD3C2"
-      className="absolute left-1/2 -translate-x-1/2 w-5 h-5 pointer-events-none z-10"
-      style={{ top: '18%', animation: 'escCae 0.65s ease-in forwards' }}
-      aria-hidden="true"
-    >
       <path d="M12 2.5c3 4.2 7 9 7 12.8a7 7 0 11-14 0c0-3.8 4-8.6 7-12.8Z" />
     </svg>
   );
@@ -153,7 +138,6 @@ export default function GardenPage() {
     );
   }
 
-  const espacios = Array.from({ length: jardin.espacios }, (_, i) => i + 1);
   const plantaPorEspacio = new Map(jardin.plantas.map((p) => [p.espacio, p]));
   const florecidas = jardin.plantas.filter((p) => p.etapa === 'FLORECIDA').length;
   const hayAlgo = jardin.semillas.length > 0 || jardin.plantas.length > 0;
@@ -264,57 +248,19 @@ export default function GardenPage() {
               </div>
               {errorRegar && <p role="alert" className="mb-3 text-sm text-[#DC2626] dark:text-[#F87171]">{errorRegar}</p>}
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {espacios.map((num) => {
+              <EscenaJardin
+                plantaPorEspacio={plantaPorEspacio}
+                totalEspacios={jardin.espacios}
+                puedePlantar={semillaElegida !== null}
+                plantando={plantando}
+                regandoId={regandoId}
+                gotaEnEspacio={gotaEnEspacio}
+                onClickEspacio={(num) => {
                   const planta = plantaPorEspacio.get(num);
-
-                  if (!planta) {
-                    const puedePlantar = semillaElegida !== null;
-                    return (
-                      <button
-                        key={num}
-                        type="button"
-                        disabled={!puedePlantar || plantando}
-                        onClick={() => plantarEn(num)}
-                        className={`flex flex-col items-center justify-end rounded-2xl border-2 border-dashed p-4 pt-8 min-h-[150px] transition-colors ${
-                          puedePlantar
-                            ? 'border-[#12C2A8] bg-[#12C2A8]/5 hover:bg-[#12C2A8]/10 cursor-pointer'
-                            : 'border-[#E1E6DF] dark:border-[#27403A] cursor-default'
-                        } disabled:opacity-60`}
-                      >
-                        <MacetaVacia size={60} />
-                        <span className="text-[11px] text-[#6B7A74] dark:text-[#98B0A6] mt-2">
-                          {plantando && semillaElegida ? 'Plantando…' : puedePlantar ? 'Plantar aquí' : 'Espacio libre'}
-                        </span>
-                      </button>
-                    );
-                  }
-
-                  const puedeRegar = planta.etapa !== 'FLORECIDA';
-                  const regandoEsta = regandoId === planta.id;
-                  return (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => regar(planta)}
-                      disabled={!puedeRegar || regandoId !== null}
-                      title={puedeRegar ? 'Tocar para regar (gasta una gota)' : 'Esta planta ya floreció'}
-                      className={`relative flex flex-col items-center justify-end rounded-2xl border-2 p-4 pt-8 min-h-[150px] transition-all ${
-                        planta.etapa === 'FLORECIDA'
-                          ? 'border-[#F5A524] bg-gradient-to-b from-[#FFFBEB] to-white dark:from-[#3A2A0D]/50 dark:to-[#15231F] gl-glow-teal'
-                          : 'border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F] hover:border-[#12C2A8] cursor-pointer'
-                      } disabled:cursor-default`}
-                    >
-                      {gotaEnEspacio === planta.espacio && <GotaCayendo />}
-                      <Planta categoria={planta.categoria} etapa={planta.etapa} size={64} celebra={regandoEsta} />
-                      <span className="text-[11px] font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">{ETAPA_LABEL[planta.etapa]}</span>
-                      <span className="text-[10px] text-[#6B7A74] dark:text-[#98B0A6]">
-                        {planta.etapa === 'FLORECIDA' ? '¡Floreció!' : `${planta.riegos} de ${planta.riegosNecesarios} riegos`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                  if (planta) void regar(planta);
+                  else void plantarEn(num);
+                }}
+              />
 
               {jardin.gotas === 0 && jardin.plantas.some((p) => p.etapa !== 'FLORECIDA') && (
                 <p className="mt-4 text-xs text-center text-[#B45309] dark:text-[#FBBF24]">

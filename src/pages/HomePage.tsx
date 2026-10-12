@@ -345,7 +345,8 @@ export default function HomePage() {
                     <span className="font-mono font-bold">{jardin.semillas.length}</span> {jardin.semillas.length === 1 ? 'semilla' : 'semillas'}
                   </span>
                   <span className="text-[#1F2D2A] dark:text-[#E6EFE9]">
-                    <span className="font-mono font-bold">{jardin.plantas.filter((p) => p.etapa === 'FLORECIDA').length}</span> florecidas
+                    <span className="font-mono font-bold">{jardin.plantas.filter((p) => p.etapa === 'FLORECIDA').length}</span>{' '}
+                    {jardin.plantas.filter((p) => p.etapa === 'FLORECIDA').length === 1 ? 'florecida' : 'florecidas'}
                   </span>
                 </div>
               </button>

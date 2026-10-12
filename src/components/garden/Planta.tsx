@@ -172,8 +172,7 @@ function dibujoDeForma(forma: FormaPlanta, etapa: EtapaPlanta): Dibujo {
   }
 }
 
-const MACETA_BARRO = '#C98B5E';
-const MACETA_BORDE = '#A66A42';
+const BORDE_BANCAL = '#A66A42';
 const TIERRA = '#6B4A32';
 
 /** Planta de la especie que toca según la categoría, en la etapa que diga el backend. */
@@ -193,11 +192,8 @@ export default function Planta({ categoria, etapa, size = 72, celebra = false, c
       className={`${florecida && celebra ? 'gl-pop-in' : ''} ${className}`}
       style={{ overflow: 'visible' }}
     >
-      <ellipse cx={50} cy={106} rx={22} ry={3.4} fill="#000" opacity={0.14} />
-
-      {/* maceta */}
-      <path d="M30 80 L70 80 L64 104 L36 104 Z" fill={MACETA_BARRO} stroke={MACETA_BORDE} strokeWidth={1.2} />
-      <rect x={28} y={76} width={44} height={6.5} rx={3.2} fill={MACETA_BORDE} />
+      {/* bancal de tierra a ras de suelo, para integrarse en la escena del jardín */}
+      <ellipse cx={50} cy={84} rx={26} ry={9.5} fill={BORDE_BANCAL} />
       <ellipse cx={50} cy={79} rx={19} ry={5} fill={TIERRA} />
 
       {etapa === 'SEMILLA' && (
@@ -245,13 +241,11 @@ export function SemillaIcono({ categoria, size = 36, className = '' }: { categor
   );
 }
 
-/** Maceta vacía, para los espacios libres del jardín. */
+/** Bancal vacío, para los espacios libres del jardín. */
 export function MacetaVacia({ size = 72, className = '' }: { size?: number; className?: string }) {
   return (
     <svg viewBox="0 0 100 112" height={size} width={(size * 100) / 112} role="img" aria-label="Espacio libre" className={className} style={{ overflow: 'visible' }}>
-      <ellipse cx={50} cy={106} rx={22} ry={3.4} fill="#000" opacity={0.08} />
-      <path d="M30 80 L70 80 L64 104 L36 104 Z" fill="none" stroke="#C7D1CB" strokeWidth={1.4} strokeDasharray="4 4" />
-      <rect x={28} y={76} width={44} height={6.5} rx={3.2} fill="none" stroke="#C7D1CB" strokeWidth={1.4} strokeDasharray="4 4" />
+      <ellipse cx={50} cy={84} rx={26} ry={9.5} fill="none" stroke="#C7D1CB" strokeWidth={1.6} strokeDasharray="5 5" />
     </svg>
   );
 }
