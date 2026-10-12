@@ -11,6 +11,7 @@ import { CLAVE_UNIRSE_SALA, EVENTO_UNIRSE_SALA } from '../components/RetosCampan
 import { useNavigation } from '../store/NavigationContext';
 import { getSession } from '../services/backendSession';
 import { crearSala, obtenerPartida, obtenerSala, type DetallePartida, type Reto, type Sala } from '../services/triviaServiceApi';
+import { obtenerJardin } from '../services/usuariosServiceApi';
 import { TriviaSocket, type ParticipanteMsg, type SalaMensaje } from '../services/triviaSocket';
 import { estaSilenciado, silenciar, sonar } from '../utils/sonidos';
 import type { TriviaParticipant } from '../types';
@@ -38,6 +39,7 @@ interface Finalista {
   score: number;
   aciertos: number;
   isCurrentUser: boolean;
+  salioDeLaSala?: boolean;
 }
 
 const PESTANAS = [
@@ -84,8 +86,10 @@ function mergeParticipantes(prev: TriviaParticipant[], llegaron: ParticipanteMsg
 
 function mergeLeaderboard(prev: TriviaParticipant[], ranking: unknown[], miUsuarioId: number): TriviaParticipant[] {
   const porId = new Map(prev.map((p) => [p.id, p]));
-  return ranking.map(parseRankingItem).map((r, i) => {
+  const vistos = new Set<string>();
+  const actualizados = ranking.map(parseRankingItem).map((r, i) => {
     const id = String(r.usuarioId);
+    vistos.add(id);
     const existente = porId.get(id);
     return {
       id,
@@ -95,8 +99,12 @@ function mergeLeaderboard(prev: TriviaParticipant[], ranking: unknown[], miUsuar
       lastGain: existente ? r.score - existente.score : 0,
       isHost: existente?.isHost ?? i === 0,
       isCurrentUser: r.usuarioId === miUsuarioId,
+      salioDeLaSala: existente?.salioDeLaSala,
     };
   });
+  // quien ya se salió de la sala sigue en el marcador (atenuado) aunque el ranking del servidor ya no lo traiga
+  const ausentesQueSalieron = prev.filter((p) => p.salioDeLaSala && !vistos.has(p.id));
+  return [...actualizados, ...ausentesQueSalieron];
 }
 
 function PositionBadge({ delta }: { delta: number }) {
@@ -160,7 +168,14 @@ export default function TriviaRoomPage() {
   const [finalRanking, setFinalRanking] = useState<Finalista[]>([]);
   const [winnerIds, setWinnerIds] = useState<number[]>([]);
   const [empate, setEmpate] = useState(false);
+  const [abandono, setAbandono] = useState(false);
   const [detallePartida, setDetallePartida] = useState<DetallePartida | null>(null);
+  // aviso breve de "X salió de la sala" — se borra solo
+  const [avisoSalida, setAvisoSalida] = useState<string | null>(null);
+  // cuántas gotas ganó en esta partida (HU-jardín): se compara el jardín de usuarios-service antes y después,
+  // nunca se calcula a ojo — si el jardín no responde, simplemente no se muestra el aviso.
+  const [gotasGanadas, setGotasGanadas] = useState(0);
+  const gotasAntesRef = useRef<number | null>(null);
   // revancha en la misma sala: quien la propone pasa a ser el anfitrión de la sala nueva y los demás reciben la invitación
   const [invitacionRevancha, setInvitacionRevancha] = useState<{ nuevoCodigo: string; hostNombre: string } | null>(null);
   const [proponiendoRevancha, setProponiendoRevancha] = useState(false);
@@ -170,12 +185,25 @@ export default function TriviaRoomPage() {
   const answeredRef = useRef(false);
   const rachaRef = useRef(0);
   const ultimoTick = useRef<number | null>(null);
+  // para leer el stage "de ahora" dentro de handleSocketMessage sin que quede viejo (ver el efecto de conexión)
+  const stageRef = useRef<Stage>('lobby');
+  // true justo antes de pasar a otra sala SIN que sea un "salir" (la revancha sigue jugando) — así el cleanup
+  // de la conexión de abajo no manda salir() de más
+  const transicionIntencionalRef = useRef(false);
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
   useEffect(() => {
     answeredRef.current = answered;
   }, [answered]);
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
+  useEffect(() => {
+    if (!avisoSalida) return;
+    const id = window.setTimeout(() => setAvisoSalida(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [avisoSalida]);
 
   // "unirse" registra la fila en sala_participante Y ata esta conexión STOMP a un usuarioId. Al host,
   // POST /api/salas ya lo registró, así que su "unirse" choca con una llave duplicada — pero igual hay que
@@ -198,11 +226,17 @@ export default function TriviaRoomPage() {
     socket.connect();
     socketRef.current = socket;
     return () => {
+      // si nadie marcó esto como una transición intencional (revancha), es que de verdad se está saliendo:
+      // por el botón de salir, por navegar a otra pantalla, o porque el componente se desmontó
+      if (!transicionIntencionalRef.current) socket.salir(session.usuarioId);
+      transicionIntencionalRef.current = false;
       socket.disconnect();
       socketRef.current = null;
     };
+    // isHost no se usa aquí adentro: si estuviera en las dependencias, pasar a host a media partida
+    // (JUGADOR_SALIO con nuevoHostUsuarioId) reconectaría el socket sin necesidad.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sala?.codigo, isHost]);
+  }, [sala?.codigo]);
 
   function handleSocketMessage(msg: SalaMensaje) {
     if (!session) return;
@@ -251,15 +285,30 @@ export default function TriviaRoomPage() {
         const ranked: Finalista[] = msg.ranking
           .map(parseRankingItem)
           .sort((a, b) => b.score - a.score || b.aciertos - a.aciertos)
-          .map((r) => ({ id: String(r.usuarioId), name: r.nombre, score: r.score, aciertos: r.aciertos, isCurrentUser: r.usuarioId === session.usuarioId }));
-        const ganadores = msg.ganadoresUsuarioIds ?? (msg.ganadorUsuarioId != null ? [msg.ganadorUsuarioId] : []);
+          .map((r) => ({
+            id: String(r.usuarioId),
+            name: r.nombre,
+            score: r.score,
+            aciertos: r.aciertos,
+            isCurrentUser: r.usuarioId === session.usuarioId,
+            // por si el ranking final ya no trae a quien se salió, se conserva la marca que ya teníamos
+            salioDeLaSala: participantsRef.current.find((p) => p.id === String(r.usuarioId))?.salioDeLaSala,
+          }));
+        const ganadores = msg.abandono ? [] : msg.ganadoresUsuarioIds ?? (msg.ganadorUsuarioId != null ? [msg.ganadorUsuarioId] : []);
         setFinalRanking(ranked);
         setWinnerIds(ganadores);
         setEmpate(Boolean(msg.empate) || ganadores.length > 1);
+        setAbandono(Boolean(msg.abandono));
         setStage('result');
-        sonar(ganadores.includes(session.usuarioId) ? 'ganar' : 'terminar');
+        sonar(msg.abandono ? 'terminar' : ganadores.includes(session.usuarioId) ? 'ganar' : 'terminar');
         // el acta de la partida ya quedó guardada: de ahí salen la duración total y los demás detalles
         obtenerPartida(msg.codigo).then(setDetallePartida).catch(() => undefined);
+        // las gotas las dice el backend, nunca se calculan aquí: se compara el jardín de antes con el de ahora
+        obtenerJardin()
+          .then((j) => {
+            if (gotasAntesRef.current != null) setGotasGanadas(Math.max(0, j.gotas - gotasAntesRef.current));
+          })
+          .catch(() => undefined);
         break;
       }
       case 'REVANCHA':
@@ -268,6 +317,7 @@ export default function TriviaRoomPage() {
           // la propuse yo: la sala nueva ya me tiene como anfitrión, entro a esperar
           void obtenerSala(msg.nuevoCodigo).then((nueva) => {
             if (!nueva) return;
+            transicionIntencionalRef.current = true; // cambia de sala, no es un "salir"
             limpiarPartida();
             setRetoActual(null);
             prepararComoHost(nueva);
@@ -276,9 +326,28 @@ export default function TriviaRoomPage() {
           setInvitacionRevancha({ nuevoCodigo: msg.nuevoCodigo, hostNombre: msg.hostNombre });
         }
         break;
+      case 'JUGADOR_SALIO': {
+        const idSalio = String(msg.usuarioId);
+        if (stageRef.current === 'waiting') {
+          // en espera, desaparece de la lista (puede que ya haya venido así en SALA_UPDATE; esto cubre que no)
+          setParticipants((prev) => prev.filter((p) => p.id !== idSalio));
+        } else {
+          // a media partida se queda visible en el marcador, solo atenuado
+          setParticipants((prev) => prev.map((p) => (p.id === idSalio ? { ...p, salioDeLaSala: true } : p)));
+        }
+        const yoSoyElNuevoHost = msg.nuevoHostUsuarioId === session.usuarioId;
+        if (yoSoyElNuevoHost) setIsHost(true);
+        if (msg.usuarioId !== session.usuarioId) {
+          sonar('tick');
+          setAvisoSalida(yoSoyElNuevoHost ? `${msg.nombre} salió de la sala — ahora tú eres el anfitrión.` : `${msg.nombre} salió de la sala.`);
+        }
+        break;
+      }
       case 'ERROR':
-        // Ruido conocido e inofensivo: el "unirse" del host choca con la fila que ya insertó POST /api/salas.
-        if (!/sala_participante/i.test(msg.message)) setWsErrorMsg(msg.message);
+        // Ruido conocido e inofensivo: el "unirse" del host choca con la fila que ya insertó POST /api/salas,
+        // y una respuesta que llega tarde (ya se acabó el tiempo de la pregunta) no es un error real —
+        // el propio cronómetro local ya le mostró a la persona que se le acabó el tiempo.
+        if (!/sala_participante/i.test(msg.message) && !/tiempo/i.test(msg.message)) setWsErrorMsg(msg.message);
         setStarting(false);
         break;
     }
@@ -331,7 +400,19 @@ export default function TriviaRoomPage() {
 
   if (!currentUser || !session) return null;
 
+  // se guarda apenas se entra a la sala de espera (host o invitado) para poder comparar al terminar la partida
+  function capturarGotasAntes() {
+    obtenerJardin()
+      .then((j) => {
+        gotasAntesRef.current = j.gotas;
+      })
+      .catch(() => {
+        gotasAntesRef.current = null;
+      });
+  }
+
   function prepararComoHost(nueva: Sala) {
+    capturarGotasAntes();
     joinedCodeRef.current = null;
     // POST /api/salas ya registró al host como participante: se agrega de una vez en vez de esperar un SALA_UPDATE
     setParticipants([{ id: String(session!.usuarioId), name: session!.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
@@ -386,6 +467,7 @@ export default function TriviaRoomPage() {
         setStage('join');
         return;
       }
+      capturarGotasAntes();
       joinedCodeRef.current = null;
       setParticipants([]);
       setIsHost(false);
@@ -431,6 +513,17 @@ export default function TriviaRoomPage() {
     setDetallePartida(null);
     setInvitacionRevancha(null);
     setProponiendoRevancha(false);
+    setGotasGanadas(0);
+    setAbandono(false);
+    setAvisoSalida(null);
+  }
+
+  /** Botón de "Salir de la sala": pide confirmación solo si la partida ya está en curso. */
+  function salirDeLaSala() {
+    if (stage === 'playing' && !window.confirm('¿Seguro que quieres salir? La partida sigue para los demás y perderás tu progreso.')) {
+      return;
+    }
+    resetAll();
   }
 
   function proponerRevancha() {
@@ -442,6 +535,7 @@ export default function TriviaRoomPage() {
   function unirseARevancha() {
     if (!invitacionRevancha) return;
     const codigo = invitacionRevancha.nuevoCodigo;
+    transicionIntencionalRef.current = true; // cambia de sala, no es un "salir"
     limpiarPartida();
     void unirseAlCodigo(codigo);
   }
@@ -473,6 +567,9 @@ export default function TriviaRoomPage() {
     setDetallePartida(null);
     setInvitacionRevancha(null);
     setProponiendoRevancha(false);
+    setGotasGanadas(0);
+    setAbandono(false);
+    setAvisoSalida(null);
   }
 
   function alternarSonido() {
@@ -665,6 +762,11 @@ export default function TriviaRoomPage() {
                 <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
               </div>
             )}
+            {avisoSalida && (
+              <div role="status" className="mb-5 p-3 rounded-xl border border-[#E1E6DF] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27] text-center">
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">{avisoSalida}</p>
+              </div>
+            )}
 
             <div className="bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden mb-6">
               <div className="px-5 py-3.5 border-b border-[#E1E6DF] dark:border-[#27403A] flex items-center justify-between">
@@ -710,13 +812,13 @@ export default function TriviaRoomPage() {
                 </Button>
                 {participants.length < 2 && <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] text-center font-mono">Se necesita al menos 1 jugador más para empezar.</p>}
                 <div className="text-center">
-                  <Button variant="ghost" size="sm" onClick={() => resetAll()}>Cancelar sala</Button>
+                  <Button variant="ghost" size="sm" onClick={salirDeLaSala}>Cancelar sala</Button>
                 </div>
               </div>
             ) : (
               <div className="text-center">
                 <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">El anfitrión empezará la trivia cuando todos estén listos.</p>
-                <Button variant="secondary" className="mt-4" onClick={() => resetAll()}>Salir de la sala</Button>
+                <Button variant="secondary" className="mt-4" onClick={salirDeLaSala}>Salir de la sala</Button>
               </div>
             )}
           </div>
@@ -738,11 +840,14 @@ export default function TriviaRoomPage() {
     const ganadoresNombres = finalRanking.filter((p) => winnerIds.includes(Number(p.id))).map((p) => p.name);
     const numPreguntas = sala?.numPreguntas ?? detallePartida?.partida.numPreguntas ?? 0;
 
-    const titulo = amIWinner
-      ? empate ? '¡Empataste en lo más alto!' : '¡Ganaste la trivia! 🏆'
-      : myRank === 2 ? '¡Segundo lugar, qué buen nivel!' : myRank === 3 ? '¡En el podio! Tercer lugar' : myRank > 0 ? `Terminaste en el puesto #${myRank}` : 'Trivia finalizada';
-    const subtitulo =
-      winnerIds.length === 0
+    const titulo = abandono
+      ? 'La partida terminó'
+      : amIWinner
+        ? empate ? '¡Empataste en lo más alto!' : '¡Ganaste la trivia! 🏆'
+        : myRank === 2 ? '¡Segundo lugar, qué buen nivel!' : myRank === 3 ? '¡En el podio! Tercer lugar' : myRank > 0 ? `Terminaste en el puesto #${myRank}` : 'Trivia finalizada';
+    const subtitulo = abandono
+      ? 'Los demás jugadores salieron de la sala, así que la partida se cerró sin un ganador.'
+      : winnerIds.length === 0
         ? 'Nadie sumó puntos esta vez. ¡La revancha es tuya!'
         : amIWinner
           ? empate ? `Compartes la victoria con ${ganadoresNombres.filter((n) => n !== session.nombre).join(' y ')}.` : 'Tu victoria quedó registrada en tu perfil y en el salón de la fama.'
@@ -751,7 +856,7 @@ export default function TriviaRoomPage() {
     return (
       <div className={pagina}>
         <Navbar />
-        {(amIWinner || total > 0) && <Confetti piezas={amIWinner ? 70 : 24} />}
+        {!abandono && (amIWinner || total > 0) && <Confetti piezas={amIWinner ? 70 : 24} />}
         <main className="flex-1 flex flex-col items-center px-4 py-10">
           <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase mb-2">Trivia finalizada · {sala?.categoria}</span>
           <h2 className="text-3xl sm:text-4xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-2 text-center">{titulo}</h2>
@@ -759,10 +864,13 @@ export default function TriviaRoomPage() {
 
           <div className="flex items-end justify-center gap-3 sm:gap-4 mb-10 w-full max-w-lg">
             {podium.map((p, i) => (
-              <div key={p.id} className={`flex flex-col items-center flex-1 ${orderFor(i)} gl-pop-in`} style={{ animationDelay: `${i * 0.15}s` }}>
+              <div key={p.id} className={`flex flex-col items-center flex-1 ${orderFor(i)} gl-pop-in ${p.salioDeLaSala ? 'opacity-50' : ''}`} style={{ animationDelay: `${i * 0.15}s` }}>
                 {winnerIds.includes(Number(p.id)) && <span className="text-2xl -mb-1">👑</span>}
                 <div className="w-11 h-11 rounded-full gl-gradient flex items-center justify-center text-white font-bold mb-2">{p.name[0]}</div>
-                <p className={`text-sm font-semibold mb-2 text-center truncate max-w-[6.5rem] ${p.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>{p.name}</p>
+                <p className={`text-sm font-semibold mb-2 text-center truncate max-w-[6.5rem] ${p.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>
+                  {p.name}
+                  {p.salioDeLaSala && <span className="block font-normal text-[10px] text-[#B45309] dark:text-[#FBBF24]">(salió)</span>}
+                </p>
                 <div className={`w-full ${heightFor(i)} rounded-t-xl flex flex-col items-center justify-start pt-3 gap-1`} style={{ background: `linear-gradient(180deg, ${colorFor(i)}, #1F2D2A)` }}>
                   <span className="text-white font-display font-bold text-xl">{i + 1}</span>
                   <span className="text-white/90 text-xs font-mono">{p.score.toLocaleString()} pts</span>
@@ -775,9 +883,12 @@ export default function TriviaRoomPage() {
           {rest.length > 0 && (
             <div className="w-full max-w-md space-y-2 mb-8">
               {rest.map((p, i) => (
-                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl ${p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]'}`}>
+                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl ${p.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]'} ${p.salioDeLaSala ? 'opacity-50' : ''}`}>
                   <span className="text-sm font-mono font-bold text-[#6B7A74] dark:text-[#98B0A6] w-5">{i + 4}</span>
-                  <span className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] flex-1">{p.name}</span>
+                  <span className="text-sm font-semibold text-[#1F2D2A] dark:text-[#E6EFE9] flex-1">
+                    {p.name}
+                    {p.salioDeLaSala && <span className="ml-1 font-normal text-[10px] text-[#B45309] dark:text-[#FBBF24]">(salió)</span>}
+                  </span>
                   <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">{p.aciertos}/{numPreguntas}</span>
                   <span className="font-mono font-bold text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">{p.score.toLocaleString()}</span>
                 </div>
@@ -801,16 +912,31 @@ export default function TriviaRoomPage() {
             </dl>
           )}
 
+          {gotasGanadas > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate('garden')}
+              className="gl-pop-in mb-5 flex items-center gap-2.5 rounded-full border border-[#5FD3C2]/50 bg-[#0E8A7D]/10 px-4 py-2 cursor-pointer hover:bg-[#0E8A7D]/15 transition-colors"
+            >
+              <span className="text-lg" aria-hidden="true">💧</span>
+              <span className="text-sm font-semibold text-[#0B6F65] dark:text-[#5FD3C2]">
+                +{gotasGanadas} {gotasGanadas === 1 ? 'gota' : 'gotas'} para tu jardín
+              </span>
+              <span aria-hidden="true" className="text-[#0E8A7D] dark:text-[#5FD3C2]">→</span>
+            </button>
+          )}
+
           <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3">
-            {invitacionRevancha ? (
-              <Button variant="gradient" size="lg" onClick={unirseARevancha}>
-                ⚔️ {invitacionRevancha.hostNombre.split(' ')[0]} propone revancha: ¡unirme!
-              </Button>
-            ) : (
-              <Button variant="gradient" size="lg" onClick={proponerRevancha} disabled={proponiendoRevancha}>
-                {proponiendoRevancha ? 'Creando la revancha…' : '⚔️ Revancha en una sala nueva'}
-              </Button>
-            )}
+            {!abandono &&
+              (invitacionRevancha ? (
+                <Button variant="gradient" size="lg" onClick={unirseARevancha}>
+                  ⚔️ {invitacionRevancha.hostNombre.split(' ')[0]} propone revancha: ¡unirme!
+                </Button>
+              ) : (
+                <Button variant="gradient" size="lg" onClick={proponerRevancha} disabled={proponiendoRevancha}>
+                  {proponiendoRevancha ? 'Creando la revancha…' : '⚔️ Revancha en una sala nueva'}
+                </Button>
+              ))}
             <Button variant="secondary" size="lg" onClick={() => resetAll('jugar')}>Jugar otra vez</Button>
             <Button variant="secondary" size="lg" onClick={() => resetAll('ganadores')}>Ver ganadores</Button>
             <Button variant="ghost" size="lg" onClick={() => navigate(currentUser.role === 'publisher' ? 'my-courses' : 'home')}>Salir</Button>
@@ -845,6 +971,7 @@ export default function TriviaRoomPage() {
             <span className="text-[#6B7A74] dark:text-[#98B0A6] text-sm font-mono">{participants.length} jugadores</span>
             <span className="text-xs text-[#6B7A74] dark:text-[#98B0A6] border border-[#E1E6DF] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27] px-2 py-0.5 rounded-md">{sala?.categoria}</span>
             {botonSonido}
+            <Button variant="ghost" size="sm" onClick={salirDeLaSala}>Salir de la sala</Button>
           </div>
           <div className="flex items-center gap-5">
             {racha >= 2 && <span className="gl-pop-in px-3 py-1 rounded-full bg-[#F5A524]/20 text-[#B45309] dark:text-[#FBBF24] text-sm font-bold">🔥 Racha x{racha}</span>}
@@ -862,6 +989,11 @@ export default function TriviaRoomPage() {
         {wsErrorMsg && (
           <div role="alert" className="mb-4 p-3 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
             <p className="text-sm text-[#DC2626] dark:text-[#F87171]">{wsErrorMsg}</p>
+          </div>
+        )}
+        {avisoSalida && (
+          <div role="status" className="mb-4 p-3 rounded-xl border border-[#E1E6DF] dark:border-[#27403A] bg-[#F6F7F2] dark:bg-[#1A2C27] text-center">
+            <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">{avisoSalida}</p>
           </div>
         )}
 
@@ -941,11 +1073,17 @@ export default function TriviaRoomPage() {
                 {ranked.map((player, i) => {
                   const delta = prevPositions[player.id] !== undefined ? prevPositions[player.id] - i : 0;
                   return (
-                    <div key={player.id} className={`flex items-center gap-3 p-3 rounded-xl transition-all ${player.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-[#F6F7F2] dark:bg-[#1A2C27] border border-[#EDF1EA] dark:border-[#27403A]'} ${delta !== 0 ? 'gl-pop-in' : ''}`}>
+                    <div
+                      key={player.id}
+                      className={`flex items-center gap-3 p-3 rounded-xl transition-all ${player.isCurrentUser ? 'bg-[#12C2A8]/10 border border-[#12C2A8]/30' : 'bg-[#F6F7F2] dark:bg-[#1A2C27] border border-[#EDF1EA] dark:border-[#27403A]'} ${delta !== 0 ? 'gl-pop-in' : ''} ${player.salioDeLaSala ? 'opacity-50' : ''}`}
+                    >
                       <span className={`text-sm font-mono font-bold w-5 text-center shrink-0 ${i === 0 ? 'text-[#B45309] dark:text-[#F5A524]' : 'text-[#6B7A74] dark:text-[#98B0A6]'}`}>{i === 0 ? '👑' : i + 1}</span>
                       <div className="w-7 h-7 rounded-lg gl-gradient flex items-center justify-center text-white text-xs font-bold shrink-0">{player.name[0]}</div>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-semibold truncate ${player.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>{player.name}</p>
+                        <p className={`text-xs font-semibold truncate ${player.isCurrentUser ? 'text-[#0B6F65] dark:text-[#5FD3C2]' : 'text-[#1F2D2A] dark:text-[#E6EFE9]'}`}>
+                          {player.name}
+                          {player.salioDeLaSala && <span className="ml-1 font-normal text-[10px] text-[#B45309] dark:text-[#FBBF24]">(salió)</span>}
+                        </p>
                       </div>
                       <PositionBadge delta={delta} />
                       <p className="font-mono font-bold text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">{player.score.toLocaleString()}</p>

@@ -290,6 +290,15 @@ export default function RoadmapPage() {
             {logro}
           </div>
         )}
+        {terminado && (
+          <div className={`${card} mt-4 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-2 border-[#F5A524]/60 bg-gradient-to-br from-[#FFFBEB] to-[#FBF3E4] dark:from-[#3A2A0D]/60 dark:to-[#2A200B]/60`}>
+            <div>
+              <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">🌱 ¡Completaste tu roadmap! Ganaste una semilla para tu jardín.</p>
+              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mt-1">Ábrelo para plantarla — ahí mismo se suma a tu jardín.</p>
+            </div>
+            <Button variant="gradient" onClick={() => navigate('garden')} className="shrink-0">Ir a mi jardín</Button>
+          </div>
+        )}
         {vista.hayDadosDeBaja && (
           <div role="alert" className="mt-4 rounded-2xl border border-[#F5A524]/50 bg-[#FBF3E4] dark:bg-[#3A2A0D] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">

@@ -3,12 +3,14 @@
 // ver vite.config.ts) para no tener que lidiar con el origen en dev.
 //
 // Server -> cliente (un solo topic por sala, diferenciado por `type`):
-//   /topic/salas.{codigo}: SALA_UPDATE | PREGUNTA | RESPUESTA_REGISTRADA | LEADERBOARD | RESULTADOS_FINALES | REVANCHA | ERROR
+//   /topic/salas.{codigo}: SALA_UPDATE | PREGUNTA | RESPUESTA_REGISTRADA | LEADERBOARD | RESULTADOS_FINALES |
+//                          REVANCHA | JUGADOR_SALIO | ERROR
 // Cliente -> server:
 //   /app/salas/{codigo}/unirse   {usuarioId, nombre}
 //   /app/salas/{codigo}/iniciar  (sin body)
 //   /app/salas/{codigo}/responder {indice, opcionElegida}
 //   /app/salas/{codigo}/revancha {usuarioId, nombre}
+//   /app/salas/{codigo}/salir    {usuarioId}
 //
 // El contrato no detalla el shape exacto de cada `ranking[i]` — se parsea de
 // forma flexible (ver parseRankingItem en TriviaRoomPage) igual que el resto
@@ -32,9 +34,21 @@ export type SalaMensaje =
   /** Llega apenas ESE jugador responde (no espera a los demás) — solo para feedback inmediato suyo. */
   | { type: 'RESPUESTA_REGISTRADA'; codigo: string; usuarioId: number; indice: number; correcta: boolean; puntos: number }
   | { type: 'LEADERBOARD'; codigo: string; ranking: unknown[] }
-  | { type: 'RESULTADOS_FINALES'; codigo: string; ranking: unknown[]; ganadorUsuarioId: number | null; ganadoresUsuarioIds?: number[]; empate?: boolean; numPreguntas?: number }
+  | {
+      type: 'RESULTADOS_FINALES';
+      codigo: string;
+      ranking: unknown[];
+      ganadorUsuarioId: number | null;
+      ganadoresUsuarioIds?: number[];
+      empate?: boolean;
+      numPreguntas?: number;
+      /** La partida terminó porque los demás se salieron, no porque se acabaron las preguntas — no hay ganador. */
+      abandono?: boolean;
+    }
   /** Llega por el topic de la sala VIEJA cuando alguien propone revancha. */
   | { type: 'REVANCHA'; codigo: string; nuevoCodigo: string; hostUsuarioId: number; hostNombre: string }
+  /** Alguien se salió de la sala (botón de salir, o STOMP se desconectó y el servidor lo detectó). */
+  | { type: 'JUGADOR_SALIO'; codigo: string; usuarioId: number; nombre: string; nuevoHostUsuarioId: number | null; estado: string }
   | { type: 'ERROR'; message: string };
 
 export interface TriviaSocketHandlers {
@@ -113,6 +127,11 @@ export class TriviaSocket {
 
   revancha(usuarioId: number, nombre: string): void {
     this.publish('revancha', { usuarioId, nombre });
+  }
+
+  /** Avisa que esta persona se sale de la sala — en espera o a media partida. */
+  salir(usuarioId: number): void {
+    this.publish('salir', { usuarioId });
   }
 
   private publish(accion: string, body?: unknown): void {
