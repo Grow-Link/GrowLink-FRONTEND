@@ -91,6 +91,8 @@ export interface TriviaParticipant {
   lastGain: number;
   isHost: boolean;
   isCurrentUser?: boolean;
+  /** Se fue de la sala a media partida — se queda en el marcador, pero atenuado. */
+  salioDeLaSala?: boolean;
 }
 
 export interface ConcurrencyPoint {

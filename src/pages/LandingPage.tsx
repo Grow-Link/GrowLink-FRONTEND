@@ -3,7 +3,7 @@ import heroLearner from '../imports/heroLearner.png';
 import logo from '../imports/logoGrowLink.png';
 import Button from '../components/Button';
 import LiveIndicator from '../components/LiveIndicator';
-import AventuraMap from '../components/roadmap/AventuraMap';
+import MundoMap, { type TemaMundo } from '../components/roadmap/MundoMap';
 import Reveal from '../components/Reveal';
 import { useMouseTilt } from '../hooks/useMouseTilt';
 import { useNavigation } from '../store/NavigationContext';
@@ -184,6 +184,7 @@ export default function LandingPage() {
   const { isDark, toggle } = useTheme();
   const heroRef = useMouseTilt<HTMLDivElement>(8);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [temaDemo, setTemaDemo] = useState<TemaMundo>('noche');
 
   function scrollTo(href: string) {
     setMobileOpen(false);
@@ -419,8 +420,28 @@ export default function LandingPage() {
               </Button>
             </Reveal>
             <Reveal delay={150}>
-              <div className="max-w-[760px] mx-auto rounded-2xl shadow-2xl shadow-[#1F2D2A]/15 dark:shadow-none border border-white dark:border-white/10">
-                <AventuraMap vista={DEMO_VISTA} selectedId={null} onSelect={() => navigate('select-user')} />
+              <div className="max-w-[760px] mx-auto">
+                <div className="flex justify-center mb-4">
+                  <div role="tablist" aria-label="Momento del día del mapa de muestra" className="inline-flex p-1 rounded-xl bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]">
+                    {([['noche', 'Noche'], ['dia', 'Día']] as [TemaMundo, string][]).map(([clave, texto]) => (
+                      <button
+                        key={clave}
+                        type="button"
+                        role="tab"
+                        aria-selected={temaDemo === clave}
+                        onClick={() => setTemaDemo(clave)}
+                        className={`px-4 py-1.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
+                          temaDemo === clave ? 'gl-gradient text-white shadow' : 'text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9]'
+                        }`}
+                      >
+                        {texto}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl overflow-hidden shadow-2xl shadow-[#1F2D2A]/15 dark:shadow-none border border-white dark:border-white/10">
+                  <MundoMap vista={DEMO_VISTA} selectedId={null} onSelect={() => navigate('select-user')} tema={temaDemo} />
+                </div>
               </div>
             </Reveal>
           </div>
