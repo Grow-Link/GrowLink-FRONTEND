@@ -135,7 +135,7 @@ export default function CourseDetailPage() {
 
         <section className="rounded-3xl overflow-hidden border border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F]">
           <div className="relative h-28 sm:h-36">
-            <CourseArt category={curso.category} seed={curso.id + curso.title} className="w-full h-full" grande />
+            <CourseArt category={curso.category} seed={curso.id + curso.title} titulo={curso.title} habilidades={curso.skills} className="w-full h-full" grande />
           </div>
           <div className="p-5 sm:p-8">
             <div className="flex flex-wrap gap-2 mb-3">

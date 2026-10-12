@@ -10,7 +10,7 @@ import { getPerfil, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap } from '../services/roadmapApi';
 import { compartirPdfRoadmap, descargarPdfRoadmap, puedeCompartirPdf } from '../utils/roadmapPdf';
 import { timeAgo } from '../utils/format';
-import type { RoadmapNode, RoadmapView } from '../utils/roadmapModel';
+import type { ExamenObjetivo, RoadmapView } from '../utils/roadmapModel';
 
 // HU-12: el roadmap de la persona como un mapa por etapas. Cada curso es una parada; al tocarla se ve por qué
 // está en la ruta, qué hacer ahora (estudiar o presentar el examen) y qué otras opciones hay para ese paso.
@@ -74,7 +74,7 @@ export default function RoadmapPage() {
   const [generando, setGenerando] = useState(false);
   const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
   const [seleccionado, setSeleccionado] = useState<number | null>(null);
-  const [examenDe, setExamenDe] = useState<RoadmapNode | null>(null);
+  const [examenDe, setExamenDe] = useState<ExamenObjetivo | null>(null);
   const [logro, setLogro] = useState<string | null>(null);
   const [pdf, setPdf] = useState<'idle' | 'descargando' | 'compartiendo'>('idle');
   const [errorPdf, setErrorPdf] = useState<string | null>(null);
@@ -135,7 +135,13 @@ export default function RoadmapPage() {
     setGenerando(true);
     setErrorGenerar(null);
     try {
-      await generarRoadmap({ goals: perfil.metas ?? '', interests: perfil.intereses, level: perfil.nivel ?? 'principiante' });
+      await generarRoadmap({
+        goals: perfil.metas ?? '',
+        interests: perfil.intereses,
+        level: perfil.nivel ?? 'principiante',
+        hoursPerWeek: perfil.horasPorSemana,
+        weeks: perfil.semanas,
+      });
       setSeleccionado(null);
       setRecarga((k) => k + 1);
     } catch (e) {
@@ -247,6 +253,11 @@ export default function RoadmapPage() {
                   <span key={a} className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">{a}</span>
                 ))}
                 <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Parto como {vista.nivel}</span>
+                {vista.tiempo && (
+                  <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium" title="Tu ruta se armó para que quepa en este tiempo">
+                    {vista.tiempo.horasPorSemana} h por semana · {vista.tiempo.semanas} semanas · suma {vista.progreso.horasTotales} de {vista.tiempo.presupuesto} h
+                  </span>
+                )}
                 <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Armado {timeAgo(vista.creadoEn)}</span>
               </div>
             </div>
@@ -351,7 +362,7 @@ export default function RoadmapPage() {
           linkContenido={examenDe.link}
           onClose={() => setExamenDe(null)}
           onApproved={() => {
-            setLogro(`¡Aprobaste «${examenDe.titulo}»! Tu roadmap ya avanzó.`);
+            setLogro(examenDe.paso ? `¡Aprobaste «${examenDe.titulo}»! Con eso cumpliste el paso «${examenDe.paso}».` : `¡Aprobaste «${examenDe.titulo}»! Tu roadmap ya avanzó.`);
             setRecarga((k) => k + 1);
           }}
         />

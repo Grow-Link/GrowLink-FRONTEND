@@ -767,7 +767,11 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
     const lista: { titulo: string; dato: string }[] = [];
     vistaRef.current.nodes
       .filter((n) => n.status === 'completed')
-      .forEach((n) => datosDe(n).forEach((dato) => lista.push({ titulo: n.titulo, dato })));
+      .forEach((n) => {
+        // si el paso se cumplió con una alternativa, los datos son del curso que de verdad se aprobó
+        const base = n.cumplidoCon ? { titulo: n.cumplidoCon.titulo, categoria: n.categoria } : n;
+        datosDe(base).forEach((dato) => lista.push({ titulo: base.titulo, dato }));
+      });
     return lista;
   }, []);
 
@@ -788,10 +792,11 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
   const contarDatoDe = useCallback(
     (n: RoadmapNode) => {
       const rp = planoRef.current?.reposo(enLugar.current) ?? reposoPt;
-      const datos = datosDe(n);
+      const aprobado = n.cumplidoCon ? { titulo: n.cumplidoCon.titulo, categoria: n.categoria } : n;
+      const datos = datosDe(aprobado);
       decir(
         {
-          titulo: `Aprobaste «${n.titulo}»`,
+          titulo: `Aprobaste «${aprobado.titulo}»`,
           texto: datos.length ? `Dato curioso: ${datos[0]}` : n.habilidades.length ? `Con este curso ya tienes: ${n.habilidades.join(', ')}.` : 'Un curso menos en tu ruta.',
           ingles: usaIngles ? frase(FRASES_INGLES.aprobo) : undefined,
           tono: 'dato',
@@ -827,7 +832,7 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
       window.setTimeout(() => setNegando(false), 350);
       decir(
         {
-          texto: n.status === 'unavailable' ? 'Este curso ya no está disponible. Actualiza tu roadmap y te busco otro.' : falta ? `Todavía no puedo ir ahí: antes necesitas aprobar «${falta.titulo}».` : 'Todavía no puedo ir ahí.',
+          texto: n.status === 'unavailable' ? 'Este curso ya no está disponible. Actualiza tu roadmap y te busco otro.' : falta ? `Todavía no puedo ir ahí: antes necesitas aprobar «${falta.titulo}», o presentar el examen de este curso si ya lo sabes.` : 'Todavía no puedo ir ahí.',
           ingles: usaIngles && n.status === 'locked' ? frase(FRASES_INGLES.bloqueado) : undefined,
           tono: 'aviso',
           punto: rp,

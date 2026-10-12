@@ -54,8 +54,8 @@ export default function CatalogCard({ course, aprobado, enRoadmap, onOpen }: Cat
       onMouseLeave={alSalir}
       className="gl-card-3d group text-left bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A] rounded-2xl overflow-hidden flex flex-col transition-all hover:border-[#12C2A8]/60 cursor-pointer"
     >
-      <div className="relative h-24">
-        <CourseArt category={course.category} seed={course.id + course.title} className="w-full h-full" />
+      <div className="relative h-32">
+        <CourseArt category={course.category} seed={course.id + course.title} titulo={course.title} habilidades={course.skills} className="w-full h-full" />
         <div className="absolute top-2 left-2 right-2 flex flex-wrap gap-1.5">
           {aprobado && <span className="px-2 py-0.5 rounded-md bg-[#4CE07E] text-[#0F3D22] text-[11px] font-bold">✓ Aprobado</span>}
           {enRoadmap && !aprobado && <span className="px-2 py-0.5 rounded-md bg-[#F5A524] text-white text-[11px] font-bold">En tu roadmap</span>}

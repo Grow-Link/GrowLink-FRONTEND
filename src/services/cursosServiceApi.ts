@@ -382,7 +382,7 @@ export async function getHabilidades(categoria: string, signal?: AbortSignal): P
  * respaldo (reglas simples por categoría/nivel) y lo señala en `modoRespaldo`.
  */
 export async function sugerirPrerequisitos(
-  input: { categoria: string; nivel: string; titulo: string },
+  input: { categoria: string; nivel: string; titulo: string; descripcion?: string },
   signal?: AbortSignal
 ): Promise<SugerenciaPrerequisitos> {
   // Mismo caso que getHabilidades: categoria y nivel van como el enum del backend, no como se muestran en la UI.

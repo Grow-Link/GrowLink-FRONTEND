@@ -30,6 +30,9 @@ export interface PerfilParaRoadmap {
   /** Nombres de categoría como los muestra el frontend. */
   interests: string[];
   level: Level;
+  /** Tiempo disponible (los dos o ninguno): con eso la ruta nunca suma más horas que horas × semanas. */
+  hoursPerWeek?: number | null;
+  weeks?: number | null;
 }
 
 /**
@@ -49,6 +52,7 @@ export async function generarRoadmap(perfil: PerfilParaRoadmap): Promise<void> {
           metas: perfil.goals,
           intereses: perfil.interests.map((i) => CATEGORIA_ENUM[i as CategoriaCurso] ?? i).filter(Boolean),
           nivel: NIVEL_A_BACKEND[perfil.level],
+          ...(perfil.hoursPerWeek && perfil.weeks ? { horasPorSemana: perfil.hoursPerWeek, semanas: perfil.weeks } : {}),
         }),
       },
     }),

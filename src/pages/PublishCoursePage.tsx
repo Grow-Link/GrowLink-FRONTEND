@@ -85,6 +85,7 @@ export default function PublishCoursePage() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggestModoRespaldo, setSuggestModoRespaldo] = useState<boolean | null>(null);
+  const [suggestVacia, setSuggestVacia] = useState(false);
 
   const [intento, setIntento] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -158,6 +159,7 @@ export default function PublishCoursePage() {
   function handleCategoryChange(next: string) {
     setCategory(next);
     setPrerequisites([]);
+    setSuggestVacia(false);
     setSuggestModoRespaldo(null);
     setSuggestError(null);
   }
@@ -172,11 +174,14 @@ export default function PublishCoursePage() {
   async function suggestPrerequisites() {
     setSuggestLoading(true);
     setSuggestError(null);
+    setSuggestVacia(false);
     try {
-      const { prerequisitos, modoRespaldo }: { prerequisitos: PrerequisitoSugerido[]; modoRespaldo: boolean } = await sugerirPrerequisitos({ categoria: category, nivel: level, titulo: title });
+      const { prerequisitos, modoRespaldo }: { prerequisitos: PrerequisitoSugerido[]; modoRespaldo: boolean } = await sugerirPrerequisitos({ categoria: category, nivel: level, titulo: title, descripcion: description.trim() });
       const ids = new Set(eligiblePrereqs.map((c) => c.id));
-      setPrerequisites(prerequisitos.map((p) => p.id).filter((id) => ids.has(id)));
+      const utiles = prerequisitos.map((p) => p.id).filter((id) => ids.has(id));
+      setPrerequisites(utiles);
       setSuggestModoRespaldo(modoRespaldo);
+      setSuggestVacia(utiles.length === 0);
     } catch (err) {
       setSuggestError(err instanceof Error ? err.message : 'No se pudo contactar a cursos-service.');
     } finally {
@@ -463,6 +468,7 @@ export default function PublishCoursePage() {
                   type="button"
                   onClick={suggestPrerequisites}
                   disabled={!(title.trim().length > 0 && level !== 'principiante') || suggestLoading}
+                  title={level === 'principiante' ? 'Los cursos de nivel principiante no llevan prerrequisitos' : title.trim().length === 0 ? 'Escribe primero el título del curso' : 'La IA propone prerrequisitos entre los cursos de esta área'}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#0E8A7D] border border-[#0E8A7D]/30 hover:bg-[#ECF7F4] dark:hover:bg-[#10211D] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {suggestLoading ? 'Consultando…' : 'Sugerir con IA'}
@@ -473,6 +479,14 @@ export default function PublishCoursePage() {
                 <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6]">Los cursos de nivel principiante no requieren prerrequisitos.</p>
               ) : (
                 <>
+                  {title.trim().length === 0 && (
+                    <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6]">Escribe el título del curso (paso 1) para poder pedirle sugerencias a la IA.</p>
+                  )}
+                  {suggestVacia && !suggestLoading && (
+                    <p className="text-xs font-semibold px-3 py-2 rounded-lg border text-[#6B7A74] dark:text-[#98B0A6] border-[#E1E6DF] dark:border-[#27403A]">
+                      No encontramos cursos de un nivel menor que sirvan como prerrequisito de este. Puedes elegirlos tú abajo, o dejarlo sin prerrequisitos.
+                    </p>
+                  )}
                   {suggestError && <p role="alert" className="text-xs text-[#DC2626] dark:text-[#F87171]">{suggestError}</p>}
                   {suggestModoRespaldo !== null && (
                     <p className={`text-xs font-semibold px-3 py-2 rounded-lg border ${suggestModoRespaldo ? 'text-[#B45309] dark:text-[#FBBF24] bg-[#FFFBEB] dark:bg-[#3A2A0D] border-[#F59E0B]/40' : 'text-[#0F766E] dark:text-[#2DD4BF] bg-[#12C2A8]/10 border-[#12C2A8]/30'}`}>

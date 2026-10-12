@@ -1,4 +1,5 @@
 import { CATEGORY_STYLE } from './CategoryGlyph';
+import CourseScene from './CourseScene';
 
 interface CourseArtProps {
   category: string;
@@ -7,6 +8,9 @@ interface CourseArtProps {
   className?: string;
   /** Más grande en la ficha del curso. */
   grande?: boolean;
+  /** Con el título y las habilidades se dibuja el tema propio del curso (Python, bases de datos…). */
+  titulo?: string;
+  habilidades?: string[];
 }
 
 function hash(texto: string): number {
@@ -22,28 +26,29 @@ const POR_DEFECTO = { from: '#0E8A7D', to: '#12C2A8' };
 
 /**
  * La ilustración de un curso: un degradado del color de su área con formas que flotan, una cuadrícula que se
- * desplaza, chispas que titilan y el icono del área meciéndose. Si el contenedor es una .gl-card-3d, además hay un
+ * desplaza, chispas que titilan y una escena propia de su área (código y engranajes, un puente con grúa, un circuito,
+ * una balanza, barras que crecen…) hecha de piezas que se mueven; el icono del área queda como sello en la esquina. Si el contenedor es una .gl-card-3d, además hay un
  * brillo que sigue al cursor. Es puro CSS (nada de imágenes que descargar) y se apaga con "reducir movimiento".
  */
-export default function CourseArt({ category, seed, className = 'h-24', grande = false }: CourseArtProps) {
+export default function CourseArt({ category, seed, className = 'h-24', grande = false, titulo, habilidades }: CourseArtProps) {
   const estilo = CATEGORY_STYLE[category];
   const from = estilo?.from ?? POR_DEFECTO.from;
   const to = estilo?.to ?? POR_DEFECTO.to;
   const h = hash(seed + category);
   const angulo = 115 + (h % 90);
   const x1 = 10 + (h % 50);
-  const x2 = 45 + ((h >> 3) % 45);
-  const y1 = 5 + ((h >> 5) % 40);
+  const x2 = 45 + ((h >>> 3) % 45);
+  const y1 = 5 + ((h >>> 5) % 40);
   // cada curso tiene su propio acento cálido, su anillo y su lado donde brilla
-  const calido = ['#F5A524', '#F2704E', '#FBBF24', '#4CE07E'][(h >> 7) % 4];
-  const ladoDerecho = (h >> 9) % 2 === 0;
-  const anillo = 44 + ((h >> 11) % 40);
+  const calido = ['#F5A524', '#F2704E', '#FBBF24', '#4CE07E'][(h >>> 7) % 4];
+  const ladoDerecho = (h >>> 9) % 2 === 0;
+  const anillo = 44 + ((h >>> 11) % 40);
   const chispas = Array.from({ length: 5 }, (_, i) => ({
-    x: 8 + ((h >> (i * 3)) % 84),
-    y: 10 + ((h >> (i * 2 + 1)) % 72),
-    dur: 2.2 + ((h >> i) % 18) / 10,
-    delay: -(((h >> (i + 2)) % 25) / 10),
-    tam: 2 + ((h >> (i + 4)) % 3),
+    x: 8 + ((h >>> (i * 3)) % 84),
+    y: 10 + ((h >>> (i * 2 + 1)) % 72),
+    dur: 2.2 + ((h >>> i) % 18) / 10,
+    delay: -(((h >>> (i + 2)) % 25) / 10),
+    tam: 2 + ((h >>> (i + 4)) % 3),
   }));
 
   return (
@@ -66,14 +71,12 @@ export default function CourseArt({ category, seed, className = 'h-24', grande =
           style={{ left: `${c.x}%`, top: `${c.y}%`, width: c.tam, height: c.tam, animationDelay: `${c.delay}s`, ['--dur' as string]: `${c.dur}s` }}
         />
       ))}
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="white"
-        className={`gl-art-bob absolute inset-0 m-auto drop-shadow-lg opacity-95 ${grande ? 'w-16 h-16' : 'w-10 h-10'}`}
-      >
-        {estilo?.icon}
-      </svg>
+      <CourseScene category={category} acc={calido} semilla={h >>> 4} titulo={titulo} habilidades={habilidades} />
+      <div className={`absolute left-2.5 bottom-2.5 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/30 ${grande ? 'w-10 h-10' : 'w-7 h-7'}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" className={grande ? 'w-6 h-6' : 'w-4 h-4'}>
+          {estilo?.icon}
+        </svg>
+      </div>
       <div className="gl-art-shine absolute inset-0 pointer-events-none" />
     </div>
   );

@@ -73,6 +73,9 @@ export interface Perfil {
   completo: boolean;
   /** HU-22: partidas de trivia ganadas, la suma trivia-service cuando termina una partida. */
   triviasGanadas: number;
+  /** El tiempo que puede dedicarle (opcional: los dos o ninguno). Con eso el roadmap no se pasa de horas. */
+  horasPorSemana: number | null;
+  semanas: number | null;
 }
 
 const NIVEL_DESDE_BACKEND: Record<string, Level> = { PRINCIPIANTE: 'principiante', INTERMEDIO: 'intermedio', AVANZADO: 'avanzado' };
@@ -85,6 +88,8 @@ function parsePerfil(data: any): Perfil {
     nivel: data?.nivel ? NIVEL_DESDE_BACKEND[data.nivel] ?? null : null,
     completo: Boolean(data?.completo),
     triviasGanadas: Number(data?.triviasGanadas ?? 0),
+    horasPorSemana: typeof data?.horasPorSemana === 'number' ? data.horasPorSemana : null,
+    semanas: typeof data?.semanas === 'number' ? data.semanas : null,
   };
 }
 
@@ -119,6 +124,11 @@ export async function guardarIntereses(categorias: string[]): Promise<Perfil> {
 /** PUT /api/perfil/nivel */
 export async function guardarNivel(nivel: Level): Promise<Perfil> {
   return perfilRequest('nivel', { nivel: nivel.toUpperCase() });
+}
+
+/** PUT /api/perfil/tiempo — horas por semana y plazo en semanas; sin valores se quita el límite. */
+export async function guardarTiempo(horasPorSemana: number | null, semanas: number | null): Promise<Perfil> {
+  return perfilRequest('tiempo', horasPorSemana && semanas ? { horasPorSemana, semanas } : {});
 }
 
 export type EstadoHomeTipo = 'SIN_PERFIL' | 'CON_PERFIL_SIN_ROADMAP' | 'CON_ROADMAP';

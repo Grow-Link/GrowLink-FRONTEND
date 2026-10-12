@@ -5,12 +5,21 @@ import CheckpointPath from '../components/CheckpointPath';
 import CategoryGlyph from '../components/CategoryGlyph';
 import { useNavigation } from '../store/NavigationContext';
 import { BackendError } from '../services/backendSession';
-import { getPerfil, guardarIntereses, guardarMetas, guardarNivel } from '../services/usuariosServiceApi';
+import { getPerfil, guardarIntereses, guardarMetas, guardarNivel, guardarTiempo } from '../services/usuariosServiceApi';
 import { listarAreas, type AreaResumen } from '../services/cursosServiceApi';
 import { generarRoadmap } from '../services/roadmapApi';
 import type { Level } from '../types';
 
-const CHECKPOINTS = [{ label: 'Áreas' }, { label: 'Tu meta' }, { label: 'Tu punto de partida' }];
+const CHECKPOINTS = [{ label: 'Áreas' }, { label: 'Tu meta' }, { label: 'Punto de partida y tiempo' }];
+
+// el tiempo es opcional: horas por semana x semanas = el tope de horas de la ruta
+const HORAS_POR_SEMANA = [2, 5, 10, 15, 20];
+const PLAZOS: { semanas: number; label: string }[] = [
+  { semanas: 4, label: '1 mes' },
+  { semanas: 13, label: '3 meses' },
+  { semanas: 26, label: '6 meses' },
+  { semanas: 52, label: '1 año' },
+];
 
 const LEVELS: { value: Level; label: string; copy: string }[] = [
   { value: 'principiante', label: 'Estoy empezando', copy: 'Es nuevo para mí, o solo lo he probado un poco. Quiero una base sólida.' },
@@ -21,7 +30,7 @@ const LEVELS: { value: Level; label: string; copy: string }[] = [
 const PASOS_GENERANDO = ['Leyendo tu meta', 'Buscando entre los cursos disponibles', 'Ordenando tu ruta paso a paso'];
 
 interface ErrorDeMeta {
-  tipo: 'sin-sentido' | 'sin-cursos' | 'otro';
+  tipo: 'sin-sentido' | 'sin-cursos' | 'tiempo' | 'plan' | 'otro';
   mensaje: string;
 }
 
@@ -36,6 +45,8 @@ export default function OnboardingPage() {
   const [elegidas, setElegidas] = useState<string[]>([]);
   const [meta, setMeta] = useState('');
   const [nivel, setNivel] = useState<Level>('principiante');
+  const [horasSemana, setHorasSemana] = useState<number | null>(null);
+  const [plazo, setPlazo] = useState<number | null>(null);
 
   const [generando, setGenerando] = useState(false);
   const [pasoGenerando, setPasoGenerando] = useState(0);
@@ -51,9 +62,12 @@ export default function OnboardingPage() {
         if (perfil) {
           // solo se recuerdan áreas que todavía existen: si un área se quedó sin cursos, ya no se puede elegir
           const vigentes = new Set(listaAreas.map((a) => a.etiqueta));
-          setElegidas(perfil.intereses.filter((i) => vigentes.has(i)));
+          // plan gratuito: un solo tema (una sola área); si el perfil guardaba varias, se parte de la primera
+          setElegidas(perfil.intereses.filter((i) => vigentes.has(i)).slice(0, 1));
           setMeta(perfil.metas ?? '');
           if (perfil.nivel) setNivel(perfil.nivel);
+          setHorasSemana(perfil.horasPorSemana);
+          setPlazo(perfil.semanas);
           setTienePerfil(perfil.completo);
         }
       })
@@ -84,12 +98,20 @@ export default function OnboardingPage() {
   const totalCursos = (areas ?? []).reduce((suma, a) => suma + a.cursos, 0);
   const totalHoras = (areas ?? []).reduce((suma, a) => suma + a.horasTotales, 0);
 
+  // el tiempo vale solo si se eligieron las dos cosas
+  const tiempoElegido = horasSemana !== null && plazo !== null;
+  const horasEnTotal = tiempoElegido ? horasSemana * plazo : null;
+  const horasDeLasAreas = areasElegidas.reduce((suma, a) => suma + a.horasTotales, 0);
+
   const metaLimpia = meta.trim();
   const metaPareceValida = metaLimpia.length >= 10 && /[a-záéíóúñ]{3,}/i.test(metaLimpia);
-  const puedeAvanzar = paso === 0 ? elegidas.length > 0 : paso === 1 ? metaPareceValida : true;
+  const tiempoACompletar = (horasSemana === null) !== (plazo === null);
+  const puedeAvanzar = paso === 0 ? elegidas.length > 0 : paso === 1 ? metaPareceValida : !tiempoACompletar;
 
+  // plan gratuito: un roadmap es de UN solo tema, así que elegir un área reemplaza a la anterior
   function alternarArea(etiqueta: string) {
-    setElegidas((prev) => (prev.includes(etiqueta) ? prev.filter((e) => e !== etiqueta) : [...prev, etiqueta]));
+    setElegidas((prev) => (prev.includes(etiqueta) ? [] : [etiqueta]));
+    if (errorMeta) setErrorMeta(null);
   }
 
   async function crearRoadmap() {
@@ -97,16 +119,30 @@ export default function OnboardingPage() {
     setErrorMeta(null);
     try {
       // primero se genera: si la meta no sirve, no se guarda nada y la persona puede corregirla
-      await generarRoadmap({ goals: metaLimpia, interests: elegidas, level: nivel });
+      await generarRoadmap({
+        goals: metaLimpia,
+        interests: elegidas,
+        level: nivel,
+        hoursPerWeek: tiempoElegido ? horasSemana : null,
+        weeks: tiempoElegido ? plazo : null,
+      });
       await guardarMetas(metaLimpia);
       await guardarIntereses(elegidas);
       await guardarNivel(nivel);
+      await guardarTiempo(tiempoElegido ? horasSemana : null, tiempoElegido ? plazo : null);
       navigate('roadmap', { replace: true });
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : 'No pudimos crear tu roadmap.';
       const estado = err instanceof BackendError ? err.status : undefined;
-      setErrorMeta({ tipo: estado === 400 ? 'sin-sentido' : estado === 422 ? 'sin-cursos' : 'otro', mensaje });
-      setPaso(1);
+      // el servidor avisa del tiempo con "tiempo disponible": ese error se corrige en el paso 3, no en la meta
+      const porTiempo = estado === 422 && /tiempo disponible/i.test(mensaje);
+      // el límite del plan gratuito: si pasa por las áreas se corrige en el paso 1; si es por la meta, en el paso 2
+      const porPlan = estado === 422 && /plan gratuito/i.test(mensaje);
+      setErrorMeta({
+        tipo: porTiempo ? 'tiempo' : porPlan ? 'plan' : estado === 400 ? 'sin-sentido' : estado === 422 ? 'sin-cursos' : 'otro',
+        mensaje,
+      });
+      setPaso(porTiempo ? 2 : porPlan && /una sola área/i.test(mensaje) ? 0 : 1);
     } finally {
       setGenerando(false);
     }
@@ -190,15 +226,21 @@ export default function OnboardingPage() {
         <div className="bg-white dark:bg-[#15231F] rounded-2xl border border-[#E1E6DF] dark:border-[#27403A] p-5 sm:p-8">
           {paso === 0 && (
             <div>
-              <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-1">¿En qué área quieres crecer?</h2>
-              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-5">Elige una o varias. Estas son las áreas con cursos disponibles hoy.</p>
+              {errorMeta && errorMeta.tipo === 'plan' && <AvisoDeMeta error={errorMeta} areas={areasElegidas} />}
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">¿En qué área quieres crecer?</h2>
+                <span className="text-xs font-mono font-semibold uppercase tracking-wide text-[#0E8A7D] dark:text-[#5FD3C2]">Plan gratuito · 1 tema</span>
+              </div>
+              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-5">
+                Elige una. Con el plan gratuito cada roadmap se arma sobre un solo tema; varias áreas a la vez estarán en el plan premium.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {areas.map((area) => (
                   <TarjetaArea key={area.area} area={area} elegida={elegidas.includes(area.etiqueta)} onToggle={() => alternarArea(area.etiqueta)} />
                 ))}
               </div>
               <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-4">
-                {elegidas.length === 0 ? 'Elige al menos un área para continuar.' : `${elegidas.length} ${elegidas.length === 1 ? 'área elegida' : 'áreas elegidas'}`}
+                {elegidas.length === 0 ? 'Elige un área para continuar.' : `Área elegida: ${elegidas[0]}`}
               </p>
             </div>
           )}
@@ -207,11 +249,11 @@ export default function OnboardingPage() {
             <div>
               <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-1">¿Qué quieres lograr?</h2>
               <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-4">
-                Cuéntalo en una frase, con el tema concreto. Debe estar dentro de:{' '}
+                Cuéntalo en una frase, con <strong className="text-[#1F2D2A] dark:text-[#E6EFE9]">una sola meta y un solo tema</strong>. Debe estar dentro de:{' '}
                 <strong className="text-[#1F2D2A] dark:text-[#E6EFE9]">{elegidas.join(', ')}</strong>.
               </p>
 
-              {errorMeta && <AvisoDeMeta error={errorMeta} areas={areasElegidas} />}
+              {errorMeta && errorMeta.tipo !== 'tiempo' && <AvisoDeMeta error={errorMeta} areas={areasElegidas} />}
 
               <textarea
                 value={meta}
@@ -229,6 +271,11 @@ export default function OnboardingPage() {
                   {metaLimpia.length < 10 ? 'Escribe al menos 10 caracteres.' : metaPareceValida ? 'Listo, se ve bien.' : 'Usa palabras reales para describir tu meta.'}
                 </p>
                 <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-mono">{meta.length}/300</p>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <p className="rounded-lg bg-[#4CE07E]/10 text-[#15803D] dark:text-[#4CE07E] px-3 py-2">✓ «Quiero aprender Python para analizar datos»</p>
+                <p className="rounded-lg bg-[#F2704E]/10 text-[#B4492E] dark:text-[#F2A08A] px-3 py-2">✗ «Python, contabilidad y diseño»: son tres temas, elige uno</p>
               </div>
 
               {ideas.length > 0 && (
@@ -256,6 +303,7 @@ export default function OnboardingPage() {
 
           {paso === 2 && (
             <div>
+              {errorMeta && errorMeta.tipo === 'tiempo' && <AvisoDeMeta error={errorMeta} areas={areasElegidas} />}
               <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mb-1">¿Desde dónde partimos?</h2>
               <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-5">
                 Pensando en tu meta <em className="text-[#1F2D2A] dark:text-[#E6EFE9] not-italic font-semibold">«{metaLimpia.length > 90 ? `${metaLimpia.slice(0, 90)}…` : metaLimpia}»</em>,
@@ -281,6 +329,45 @@ export default function OnboardingPage() {
                   );
                 })}
               </div>
+
+              <div className="mt-8 pt-6 border-t border-[#E1E6DF] dark:border-[#27403A]">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                  <h2 className="text-xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">¿Cuánto tiempo puedes dedicarle?</h2>
+                  <span className="text-xs font-mono font-semibold uppercase tracking-wide text-[#6B7A74] dark:text-[#98B0A6]">Opcional</span>
+                </div>
+                <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mb-4">
+                  Si nos dices cuánto tiempo tienes, armamos una ruta que quepa en él. Si prefieres no ponerle límite, déjalo así.
+                </p>
+
+                <p className="text-xs font-semibold text-[#6B7A74] dark:text-[#98B0A6] uppercase tracking-wide mb-2">Horas por semana</p>
+                <div className="flex flex-wrap gap-2">
+                  {HORAS_POR_SEMANA.map((h) => (
+                    <Chip key={h} activo={horasSemana === h} onClick={() => { setHorasSemana(horasSemana === h ? null : h); if (errorMeta) setErrorMeta(null); }}>
+                      {h} h
+                    </Chip>
+                  ))}
+                </div>
+
+                <p className="text-xs font-semibold text-[#6B7A74] dark:text-[#98B0A6] uppercase tracking-wide mt-4 mb-2">En cuánto tiempo</p>
+                <div className="flex flex-wrap gap-2">
+                  {PLAZOS.map((p) => (
+                    <Chip key={p.semanas} activo={plazo === p.semanas} onClick={() => { setPlazo(plazo === p.semanas ? null : p.semanas); if (errorMeta) setErrorMeta(null); }}>
+                      {p.label}
+                    </Chip>
+                  ))}
+                  <Chip activo={!tiempoElegido && horasSemana === null && plazo === null} onClick={() => { setHorasSemana(null); setPlazo(null); }}>
+                    Sin límite
+                  </Chip>
+                </div>
+
+                <p className="text-xs mt-3 min-h-[1.25rem] text-[#6B7A74] dark:text-[#98B0A6]" aria-live="polite">
+                  {tiempoElegido
+                    ? `Tendrías unas ${horasEnTotal} horas en total. Los cursos de tus áreas suman ${horasDeLasAreas} h: armaremos la ruta más útil que quepa.`
+                    : horasSemana !== null || plazo !== null
+                      ? 'Elige también el otro dato (horas por semana y plazo van juntos), o quita el límite con «Sin límite».'
+                      : ''}
+                </p>
+              </div>
             </div>
           )}
 
@@ -299,7 +386,7 @@ export default function OnboardingPage() {
                 Continuar
               </Button>
             ) : (
-              <Button variant="gradient" onClick={crearRoadmap}>
+              <Button variant="gradient" onClick={crearRoadmap} disabled={!puedeAvanzar}>
                 Crear mi roadmap
               </Button>
             )}
@@ -362,14 +449,39 @@ function TarjetaArea({ area, elegida, onToggle }: { area: AreaResumen; elegida: 
   );
 }
 
+function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors cursor-pointer ${
+        activo
+          ? 'border-[#0E8A7D] bg-[#ECF7F4] dark:bg-[#10211D] text-[#0E8A7D] dark:text-[#5FD3C2]'
+          : 'border-[#E1E6DF] dark:border-[#27403A] text-[#1F2D2A] dark:text-[#E6EFE9] hover:border-[#12C2A8]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function AvisoDeMeta({ error, areas }: { error: ErrorDeMeta; areas: AreaResumen[] }) {
   const titulo =
-    error.tipo === 'sin-sentido' ? 'No entendimos esa meta' : error.tipo === 'sin-cursos' ? 'Todavía no tenemos cursos para eso' : 'No pudimos crear tu roadmap';
+    error.tipo === 'sin-sentido'
+      ? 'No entendimos esa meta'
+      : error.tipo === 'sin-cursos'
+        ? 'Todavía no tenemos cursos para eso'
+        : error.tipo === 'tiempo'
+          ? 'Con ese tiempo no alcanza'
+          : error.tipo === 'plan'
+            ? 'Una cosa a la vez (plan gratuito)'
+            : 'No pudimos crear tu roadmap';
   return (
     <div className="mb-4 rounded-xl border border-[#F5A524]/50 bg-[#FBF3E4] dark:bg-[#3A2A0D] dark:border-[#78350F] p-4" role="alert">
       <p className="text-sm font-semibold text-[#B45309] dark:text-[#FBBF24]">{titulo}</p>
       <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9] mt-1">{error.mensaje}</p>
-      {error.tipo !== 'otro' && areas.length > 0 && (
+      {error.tipo !== 'otro' && error.tipo !== 'tiempo' && error.tipo !== 'plan' && areas.length > 0 && (
         <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mt-2">
           Recuerda: solo podemos armar rutas con las áreas que elegiste ({areas.map((a) => a.etiqueta).join(', ')}). Prueba con un tema concreto de esas áreas.
         </p>

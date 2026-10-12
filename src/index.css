@@ -501,3 +501,54 @@ html.dark .gl-card-hover:hover {
     animation: none !important;
   }
 }
+
+/* ---- Escenas de las ilustraciones del catálogo (SVG, una por área) ---- */
+.gl-esc-gira { transform-box: fill-box; transform-origin: center; animation: artSpin var(--dur, 12s) linear infinite; }
+.gl-esc-gira-inv { transform-box: fill-box; transform-origin: center; animation: artSpin var(--dur, 12s) linear infinite reverse; }
+.gl-esc-flota { transform-box: fill-box; transform-origin: center; animation: iconBob var(--dur, 5s) ease-in-out infinite; }
+@keyframes escBalancea {
+  0%, 100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+}
+.gl-esc-balancea { transform-box: fill-box; transform-origin: center; animation: escBalancea var(--dur, 4s) ease-in-out infinite; }
+@keyframes escSube {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1); }
+}
+.gl-esc-barra { transform-box: fill-box; transform-origin: 50% 100%; animation: escSube var(--dur, 3s) ease-in-out infinite; }
+@keyframes escCinta { to { stroke-dashoffset: -32; } }
+.gl-esc-cinta { stroke-dasharray: 10 6; animation: escCinta 1.4s linear infinite; }
+@keyframes escDesliza {
+  from { transform: translateX(-46px); }
+  to { transform: translateX(176px); }
+}
+.gl-esc-caja { animation: escDesliza var(--dur, 6s) linear infinite; }
+@keyframes escHumo {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  20% { opacity: 0.75; }
+  100% { transform: translateY(-24px) scale(1.5); opacity: 0; }
+}
+.gl-esc-humo { transform-box: fill-box; transform-origin: center; animation: escHumo 3s ease-out infinite; }
+@keyframes escCae {
+  0% { transform: translateY(-6px); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateY(28px); opacity: 0; }
+}
+.gl-esc-gota { animation: escCae 2s ease-in infinite; }
+@keyframes escPulso {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+.gl-esc-pulso { animation: escPulso var(--dur, 1.6s) ease-in-out infinite; }
+@keyframes escFlujo { to { stroke-dashoffset: -30; } }
+.gl-esc-flujo { stroke-dasharray: 5 25; animation: escFlujo 1.8s linear infinite; }
+@keyframes escSonido {
+  0%, 100% { transform: scale(0.94); }
+  50% { transform: scale(1.06); }
+}
+.gl-esc-habla { transform-box: fill-box; transform-origin: 20% 100%; animation: escSonido var(--dur, 3.4s) ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-esc-gira, .gl-esc-gira-inv, .gl-esc-flota, .gl-esc-balancea, .gl-esc-barra, .gl-esc-cinta, .gl-esc-caja,
+  .gl-esc-humo, .gl-esc-gota, .gl-esc-pulso, .gl-esc-flujo, .gl-esc-habla { animation: none !important; }
+}

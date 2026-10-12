@@ -143,6 +143,14 @@ export async function crearPdfRoadmap(vista: RoadmapView, nombre: string): Promi
     parrafo(vista.resumen, { tam: 10.5, color: INK });
     y += 6;
   }
+  if (vista.tiempo) {
+    const t = vista.tiempo;
+    parrafo(
+      `Tu tiempo: ${t.horasPorSemana} h por semana durante ${t.semanas} semanas (${t.presupuesto} h). Esta ruta suma ${vista.progreso.horasTotales} h.`,
+      { tam: 10, color: MUTED }
+    );
+    y += 6;
+  }
 
   // el avance en cuatro cifras
   const p = vista.progreso;

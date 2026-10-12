@@ -14,6 +14,8 @@ export interface AlternativaDto {
   duracionHoras: number | null;
   linkContenido: string | null;
   habilidades: string[];
+  /** Siempre mayor que 0: el servidor solo propone alternativas que tienen examen. */
+  totalPreguntasExamen?: number;
 }
 
 export interface RoadmapCursoDto {
@@ -45,6 +47,10 @@ export interface RoadmapDto {
   generadoPor?: 'IA' | 'RESPALDO' | null;
   resumen?: string | null;
   intereses?: string[];
+  /** El tiempo con el que se armó la ruta (no vienen si no había límite). */
+  horasPorSemana?: number | null;
+  semanas?: number | null;
+  presupuestoHoras?: number | null;
   cursos: RoadmapCursoDto[];
 }
 
@@ -66,6 +72,16 @@ export interface Alternativa {
   horas: number | null;
   link: string | null;
   habilidades: string[];
+  tieneExamen: boolean;
+}
+
+/** Lo que necesita el examen de un curso (el del paso o el de una de sus alternativas). */
+export interface ExamenObjetivo {
+  cursoId: number;
+  titulo: string;
+  link: string | null;
+  /** Si es una alternativa: el título del paso de la ruta que va a cumplir. */
+  paso?: string;
 }
 
 export interface RoadmapNode {
@@ -85,6 +101,8 @@ export interface RoadmapNode {
   link: string | null;
   tieneExamen: boolean;
   alternativas: Alternativa[];
+  /** Si el paso se cumplió aprobando una alternativa (y no el curso de la ruta), cuál fue. */
+  cumplidoCon: { cursoId: number; titulo: string; horas: number | null; habilidades: string[] } | null;
   status: NodeStatus;
 }
 
@@ -114,6 +132,8 @@ export interface RoadmapView {
   generadoPor: 'IA' | 'RESPALDO' | null;
   resumen: string;
   areas: string[];
+  /** El tiempo con el que se armó la ruta, o null si no tenía límite. */
+  tiempo: { horasPorSemana: number; semanas: number; presupuesto: number } | null;
   nodes: RoadmapNode[];
   stages: Stage[];
   progreso: Progreso;
@@ -154,13 +174,25 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
     return etapa;
   };
 
+  // un PASO queda cumplido si se aprobó el curso de la ruta o cualquiera de sus alternativas (las alternativas
+  // cubren todo lo del paso). Eso también abre lo que viene después.
+  const cumplidoPor = new Map<number, AlternativaDto | 'principal'>();
+  cursos.forEach((c) => {
+    if (completados.has(c.cursoId)) cumplidoPor.set(c.cursoId, 'principal');
+    else {
+      const alt = (c.alternativas ?? []).find((a) => completados.has(a.cursoId));
+      if (alt) cumplidoPor.set(c.cursoId, alt);
+    }
+  });
+  const cumple = (id: number) => cumplidoPor.has(id);
+
   let yaHayActual = false;
   const nodes: RoadmapNode[] = cursos.map((c) => {
     const previos = c.prerequisitoIds.filter((p) => enRuta.has(p));
-    const prerrequisitosHechos = previos.every((p) => completados.has(p));
+    const prerrequisitosHechos = previos.every((p) => cumple(p));
 
     let status: NodeStatus;
-    if (completados.has(c.cursoId)) status = 'completed';
+    if (cumple(c.cursoId)) status = 'completed';
     else if (!c.activo) status = 'unavailable';
     else if (!prerrequisitosHechos) status = 'locked';
     else if (!yaHayActual) {
@@ -175,7 +207,7 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
       nivel: NIVEL_DESDE_BACKEND[c.nivel] ?? 'principiante',
       orden: c.orden,
       etapa: etapaDe(c.cursoId),
-      prerequisitos: previos.map((p) => ({ cursoId: p, titulo: enRuta.get(p)!.titulo, hecho: completados.has(p) })),
+      prerequisitos: previos.map((p) => ({ cursoId: p, titulo: enRuta.get(p)!.titulo, hecho: cumple(p) })),
       razon: c.razon ?? '',
       descripcion: c.descripcion ?? '',
       horas: c.duracionHoras,
@@ -190,7 +222,12 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
         horas: a.duracionHoras,
         link: a.linkContenido || null,
         habilidades: a.habilidades ?? [],
+        tieneExamen: (a.totalPreguntasExamen ?? 0) > 0,
       })),
+      cumplidoCon: (() => {
+        const por = cumplidoPor.get(c.cursoId);
+        return por && por !== 'principal' ? { cursoId: por.cursoId, titulo: por.titulo, horas: por.duracionHoras, habilidades: por.habilidades ?? [] } : null;
+      })(),
       status,
     };
   });
@@ -212,8 +249,11 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
 
   const hechos = nodes.filter((n) => n.status === 'completed');
   const horas = (lista: RoadmapNode[]) => lista.reduce((suma, n) => suma + (n.horas ?? 0), 0);
-  const habilidadesTotales = [...new Set(nodes.flatMap((n) => n.habilidades))];
-  const habilidadesDesbloqueadas = [...new Set(hechos.flatMap((n) => n.habilidades))];
+  // lo ya hecho cuenta con el curso que de verdad se aprobó (el de la ruta o su alternativa)
+  const horasHechas = hechos.reduce((suma, n) => suma + (n.cumplidoCon ? n.cumplidoCon.horas ?? 0 : n.horas ?? 0), 0);
+  const habilidadesDesbloqueadas = [...new Set(hechos.flatMap((n) => (n.cumplidoCon ? n.cumplidoCon.habilidades : n.habilidades)))];
+  // lo que da una alternativa también cuenta como parte del total (si no, saldría "2 de 1 habilidades")
+  const habilidadesTotales = [...new Set([...nodes.flatMap((n) => n.habilidades), ...habilidadesDesbloqueadas])];
 
   return {
     id: dto.id,
@@ -223,12 +263,16 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
     generadoPor: dto.generadoPor ?? null,
     resumen: dto.resumen ?? '',
     areas: (dto.intereses ?? []).map(categoriaDesdeEnum),
+    tiempo:
+      dto.horasPorSemana && dto.semanas
+        ? { horasPorSemana: dto.horasPorSemana, semanas: dto.semanas, presupuesto: dto.presupuestoHoras ?? dto.horasPorSemana * dto.semanas }
+        : null,
     nodes,
     stages,
     progreso: {
       completados: hechos.length,
       total: nodes.length,
-      horasHechas: horas(hechos),
+      horasHechas,
       horasTotales: horas(nodes),
       porcentaje: nodes.length === 0 ? 0 : Math.round((hechos.length / nodes.length) * 100),
       habilidadesDesbloqueadas,
