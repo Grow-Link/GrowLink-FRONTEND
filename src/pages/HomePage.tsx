@@ -4,7 +4,7 @@ import Button from '../components/Button';
 import ProgressBar from '../components/ProgressBar';
 import CheckpointPath from '../components/CheckpointPath';
 import { useNavigation } from '../store/NavigationContext';
-import { getEstadoHome, getPerfil, type EstadoHome, type Perfil } from '../services/usuariosServiceApi';
+import { getEstadoHome, getPerfil, obtenerJardin, type EstadoHome, type Jardin, type Perfil } from '../services/usuariosServiceApi';
 import { fetchRoadmap, generarRoadmap } from '../services/roadmapApi';
 import { listarCompletados, type CursoCompletado } from '../services/cursosServiceApi';
 import { timeAgo } from '../utils/format';
@@ -41,6 +41,8 @@ export default function HomePage() {
   const [generando, setGenerando] = useState(false);
   const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
 
+  const [jardin, setJardin] = useState<Jardin | null>(null);
+
   // HU-01/HU-10: qué variante del Home mostrar viene de usuarios-service, no de un estado local simulado.
   useEffect(() => {
     if (!currentUser) return;
@@ -73,6 +75,20 @@ export default function HomePage() {
       .catch((err: unknown) => {
         if (!ignorar) setErrorRoadmap(err instanceof Error ? err.message : 'No se pudo cargar tu roadmap.');
       });
+    return () => {
+      ignorar = true;
+    };
+  }, [estado, currentUser, recarga]);
+
+  // tarjeta "Tu jardín": si no carga no es grave, simplemente no se muestra
+  useEffect(() => {
+    if (estado?.estado !== 'CON_ROADMAP' || !currentUser) return;
+    let ignorar = false;
+    obtenerJardin()
+      .then((j) => {
+        if (!ignorar) setJardin(j);
+      })
+      .catch(() => undefined);
     return () => {
       ignorar = true;
     };
@@ -313,6 +329,26 @@ export default function HomePage() {
                 <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] mb-3">Trivias ganadas: <span className="font-mono font-bold">{perfil.triviasGanadas}</span></p>
                 <button onClick={() => navigate('onboarding')} className="text-xs text-[#0E8A7D] dark:text-[#5FD3C2] font-semibold hover:underline cursor-pointer">Cambiar mi meta</button>
               </div>
+            )}
+
+            {jardin && (
+              <button onClick={() => navigate('garden')} className={`gl-card-hover text-left w-full ${card} p-5 cursor-pointer`}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-[#6B7A74] dark:text-[#98B0A6] font-semibold uppercase tracking-wider">Tu jardín</p>
+                  <span aria-hidden="true">🌱</span>
+                </div>
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-[#1F2D2A] dark:text-[#E6EFE9]">
+                    <span className="font-mono font-bold">{jardin.gotas}</span> {jardin.gotas === 1 ? 'gota' : 'gotas'}
+                  </span>
+                  <span className="text-[#1F2D2A] dark:text-[#E6EFE9]">
+                    <span className="font-mono font-bold">{jardin.semillas.length}</span> {jardin.semillas.length === 1 ? 'semilla' : 'semillas'}
+                  </span>
+                  <span className="text-[#1F2D2A] dark:text-[#E6EFE9]">
+                    <span className="font-mono font-bold">{jardin.plantas.filter((p) => p.etapa === 'FLORECIDA').length}</span> florecidas
+                  </span>
+                </div>
+              </button>
             )}
 
             <div className={`${card} p-5`}>

@@ -124,6 +124,7 @@ export type Page =
   | 'home'
   | 'onboarding'
   | 'roadmap'
+  | 'garden'
   | 'catalog'
   | 'course-detail'
   | 'my-courses'

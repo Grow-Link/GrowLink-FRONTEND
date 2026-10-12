@@ -5,6 +5,7 @@ import UserSelectPage from './pages/UserSelectPage';
 import HomePage from './pages/HomePage';
 import OnboardingPage from './pages/OnboardingPage';
 import RoadmapPage from './pages/RoadmapPage';
+import GardenPage from './pages/GardenPage';
 import CourseCatalogPage from './pages/CourseCatalogPage';
 import CourseDetailPage from './pages/CourseDetailPage';
 import MyCoursesPage from './pages/MyCoursesPage';
@@ -27,6 +28,7 @@ function Router() {
     case 'home': return <HomePage />;
     case 'onboarding': return <OnboardingPage />;
     case 'roadmap': return <RoadmapPage />;
+    case 'garden': return <GardenPage />;
     case 'catalog': return <CourseCatalogPage />;
     case 'course-detail': return <CourseDetailPage />;
     case 'my-courses': return <MyCoursesPage />;

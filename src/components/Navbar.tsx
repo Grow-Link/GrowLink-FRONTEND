@@ -9,6 +9,7 @@ const NAV_LINKS: Record<UserRole, { label: string; page: Page }[]> = {
   user: [
     { label: 'Inicio', page: 'home' },
     { label: 'Roadmap', page: 'roadmap' },
+    { label: 'Jardín', page: 'garden' },
     { label: 'Catálogo', page: 'catalog' },
     { label: 'Trivia', page: 'trivia' },
     { label: 'Completados', page: 'completed-courses' },

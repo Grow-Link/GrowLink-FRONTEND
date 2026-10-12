@@ -11,6 +11,7 @@ import { CLAVE_UNIRSE_SALA, EVENTO_UNIRSE_SALA } from '../components/RetosCampan
 import { useNavigation } from '../store/NavigationContext';
 import { getSession } from '../services/backendSession';
 import { crearSala, obtenerPartida, obtenerSala, type DetallePartida, type Reto, type Sala } from '../services/triviaServiceApi';
+import { obtenerJardin } from '../services/usuariosServiceApi';
 import { TriviaSocket, type ParticipanteMsg, type SalaMensaje } from '../services/triviaSocket';
 import { estaSilenciado, silenciar, sonar } from '../utils/sonidos';
 import type { TriviaParticipant } from '../types';
@@ -161,6 +162,10 @@ export default function TriviaRoomPage() {
   const [winnerIds, setWinnerIds] = useState<number[]>([]);
   const [empate, setEmpate] = useState(false);
   const [detallePartida, setDetallePartida] = useState<DetallePartida | null>(null);
+  // cuántas gotas ganó en esta partida (HU-jardín): se compara el jardín de usuarios-service antes y después,
+  // nunca se calcula a ojo — si el jardín no responde, simplemente no se muestra el aviso.
+  const [gotasGanadas, setGotasGanadas] = useState(0);
+  const gotasAntesRef = useRef<number | null>(null);
   // revancha en la misma sala: quien la propone pasa a ser el anfitrión de la sala nueva y los demás reciben la invitación
   const [invitacionRevancha, setInvitacionRevancha] = useState<{ nuevoCodigo: string; hostNombre: string } | null>(null);
   const [proponiendoRevancha, setProponiendoRevancha] = useState(false);
@@ -260,6 +265,12 @@ export default function TriviaRoomPage() {
         sonar(ganadores.includes(session.usuarioId) ? 'ganar' : 'terminar');
         // el acta de la partida ya quedó guardada: de ahí salen la duración total y los demás detalles
         obtenerPartida(msg.codigo).then(setDetallePartida).catch(() => undefined);
+        // las gotas las dice el backend, nunca se calculan aquí: se compara el jardín de antes con el de ahora
+        obtenerJardin()
+          .then((j) => {
+            if (gotasAntesRef.current != null) setGotasGanadas(Math.max(0, j.gotas - gotasAntesRef.current));
+          })
+          .catch(() => undefined);
         break;
       }
       case 'REVANCHA':
@@ -331,7 +342,19 @@ export default function TriviaRoomPage() {
 
   if (!currentUser || !session) return null;
 
+  // se guarda apenas se entra a la sala de espera (host o invitado) para poder comparar al terminar la partida
+  function capturarGotasAntes() {
+    obtenerJardin()
+      .then((j) => {
+        gotasAntesRef.current = j.gotas;
+      })
+      .catch(() => {
+        gotasAntesRef.current = null;
+      });
+  }
+
   function prepararComoHost(nueva: Sala) {
+    capturarGotasAntes();
     joinedCodeRef.current = null;
     // POST /api/salas ya registró al host como participante: se agrega de una vez en vez de esperar un SALA_UPDATE
     setParticipants([{ id: String(session!.usuarioId), name: session!.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
@@ -386,6 +409,7 @@ export default function TriviaRoomPage() {
         setStage('join');
         return;
       }
+      capturarGotasAntes();
       joinedCodeRef.current = null;
       setParticipants([]);
       setIsHost(false);
@@ -431,6 +455,7 @@ export default function TriviaRoomPage() {
     setDetallePartida(null);
     setInvitacionRevancha(null);
     setProponiendoRevancha(false);
+    setGotasGanadas(0);
   }
 
   function proponerRevancha() {
@@ -473,6 +498,7 @@ export default function TriviaRoomPage() {
     setDetallePartida(null);
     setInvitacionRevancha(null);
     setProponiendoRevancha(false);
+    setGotasGanadas(0);
   }
 
   function alternarSonido() {
@@ -799,6 +825,20 @@ export default function TriviaRoomPage() {
                 </div>
               ))}
             </dl>
+          )}
+
+          {gotasGanadas > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate('garden')}
+              className="gl-pop-in mb-5 flex items-center gap-2.5 rounded-full border border-[#5FD3C2]/50 bg-[#0E8A7D]/10 px-4 py-2 cursor-pointer hover:bg-[#0E8A7D]/15 transition-colors"
+            >
+              <span className="text-lg" aria-hidden="true">💧</span>
+              <span className="text-sm font-semibold text-[#0B6F65] dark:text-[#5FD3C2]">
+                +{gotasGanadas} {gotasGanadas === 1 ? 'gota' : 'gotas'} para tu jardín
+              </span>
+              <span aria-hidden="true" className="text-[#0E8A7D] dark:text-[#5FD3C2]">→</span>
+            </button>
           )}
 
           <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3">

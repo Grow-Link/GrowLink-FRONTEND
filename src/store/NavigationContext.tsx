@@ -10,6 +10,7 @@ const PAGE_PATHS: Record<Page, string> = {
   home: '/inicio',
   onboarding: '/perfil/completar',
   roadmap: '/roadmap',
+  garden: '/jardin',
   catalog: '/cursos',
   'course-detail': '/cursos/detalle',
   'my-courses': '/mis-cursos',
@@ -33,6 +34,7 @@ const ROUTE_PATTERNS: { page: Page; pattern: string }[] = [
   { page: 'home', pattern: '/inicio' },
   { page: 'onboarding', pattern: '/perfil/completar' },
   { page: 'roadmap', pattern: '/roadmap' },
+  { page: 'garden', pattern: '/jardin' },
   { page: 'catalog', pattern: '/cursos' },
   { page: 'my-courses', pattern: '/mis-cursos' },
   { page: 'completed-courses', pattern: '/completados' },
@@ -54,7 +56,7 @@ const ROLE_HOME: Record<UserRole, Page> = {
 };
 
 const ROLE_ALLOWED: Record<UserRole, Page[]> = {
-  user: ['home', 'onboarding', 'roadmap', 'catalog', 'course-detail', 'completed-courses', 'trivia', 'account-settings', 'public-profile', 'subscription'],
+  user: ['home', 'onboarding', 'roadmap', 'garden', 'catalog', 'course-detail', 'completed-courses', 'trivia', 'account-settings', 'public-profile', 'subscription'],
   publisher: ['my-courses', 'publish-course', 'catalog', 'course-detail', 'trivia', 'trivia-questions', 'account-settings', 'public-profile'],
   admin: ['admin-dashboard', 'admin-courses', 'catalog', 'course-detail', 'account-settings', 'public-profile'],
 };

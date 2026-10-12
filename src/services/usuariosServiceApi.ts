@@ -166,6 +166,112 @@ export interface PersonaBuscada {
   triviasGanadas: number;
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Jardín: una semilla por roadmap completado, una gota por trivia ganada. Todo el estado vive en
+// usuarios-service — no hay nada de esto en localStorage ni en datos de mentira.
+//
+// Este endpoint todavía se está construyendo en usuarios-service en paralelo: el contrato de abajo es el
+// acordado, no uno confirmado contra /v3/api-docs (a diferencia del resto de este archivo). Si cambia algo
+// al conectar de verdad, lo que hay que ajustar es parseSemilla/parsePlanta/parseJardin.
+// ---------------------------------------------------------------------------------------------------------
+
+export type EtapaPlanta = 'SEMILLA' | 'BROTE' | 'PLANTA' | 'FLORECIDA';
+
+export interface SemillaJardin {
+  id: number;
+  /** Nombre de categoría como lo muestra el frontend (ya convertido desde el enum del backend). */
+  categoria: string;
+  roadmapId: number;
+  titulo: string;
+  obtenidaEn: string;
+}
+
+export interface PlantaJardin {
+  id: number;
+  categoria: string;
+  roadmapId: number;
+  espacio: number;
+  riegos: number;
+  riegosNecesarios: number;
+  etapa: EtapaPlanta;
+  plantadaEn: string;
+  florecidaEn: string | null;
+}
+
+export interface Jardin {
+  gotas: number;
+  espacios: number;
+  /** Semillas que todavía no se plantaron. */
+  semillas: SemillaJardin[];
+  plantas: PlantaJardin[];
+}
+
+function parseSemilla(d: any): SemillaJardin {
+  return {
+    id: Number(d?.id),
+    categoria: categoriaDesdeEnum(String(d?.categoria ?? '')),
+    roadmapId: Number(d?.roadmapId),
+    titulo: String(d?.titulo ?? ''),
+    obtenidaEn: String(d?.obtenidaEn ?? ''),
+  };
+}
+
+function parsePlanta(d: any): PlantaJardin {
+  return {
+    id: Number(d?.id),
+    categoria: categoriaDesdeEnum(String(d?.categoria ?? '')),
+    roadmapId: Number(d?.roadmapId),
+    espacio: Number(d?.espacio),
+    riegos: Number(d?.riegos ?? 0),
+    riegosNecesarios: Number(d?.riegosNecesarios ?? 3),
+    etapa: (d?.etapa ?? 'SEMILLA') as EtapaPlanta,
+    plantadaEn: String(d?.plantadaEn ?? ''),
+    florecidaEn: d?.florecidaEn ?? null,
+  };
+}
+
+function parseJardin(d: any): Jardin {
+  return {
+    gotas: Number(d?.gotas ?? 0),
+    espacios: Number(d?.espacios ?? 6),
+    semillas: Array.isArray(d?.semillas) ? d.semillas.map(parseSemilla) : [],
+    plantas: Array.isArray(d?.plantas) ? d.plantas.map(parsePlanta) : [],
+  };
+}
+
+/** GET /api/jardin — además de leer el estado, sincroniza semillas nuevas desde los roadmaps que ya se completaron. */
+export async function obtenerJardin(): Promise<Jardin> {
+  const res = await authorizedFetch(() => ({ url: `${USUARIOS_API}/api/jardin` }), SERVICIO);
+  return parseJardin(await readJson<unknown>(res, SERVICIO));
+}
+
+/** POST /api/jardin/plantas/{id}/plantar — planta una semilla en un espacio libre del jardín (400/404/409 con mensaje). */
+export async function plantarSemilla(semillaId: number, espacio: number): Promise<PlantaJardin> {
+  const res = await authorizedFetch(
+    () => ({
+      url: `${USUARIOS_API}/api/jardin/plantas/${semillaId}/plantar`,
+      init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ espacio }) },
+    }),
+    SERVICIO
+  );
+  return parsePlanta(await readJson<unknown>(res, SERVICIO));
+}
+
+export interface RiegoResultado {
+  gotas: number;
+  planta: PlantaJardin;
+}
+
+/** POST /api/jardin/plantas/{id}/regar — gasta una gota; 409 si no hay gotas o si la planta ya está florecida. */
+export async function regarPlanta(plantaId: number): Promise<RiegoResultado> {
+  const res = await authorizedFetch(
+    () => ({ url: `${USUARIOS_API}/api/jardin/plantas/${plantaId}/regar`, init: { method: 'POST' } }),
+    SERVICIO
+  );
+  const d = await readJson<any>(res, SERVICIO);
+  return { gotas: Number(d?.gotas ?? 0), planta: parsePlanta(d?.planta) };
+}
+
 /** GET /api/usuarios/buscar?q= — busca personas por nombre o cargo (mínimo 2 letras, máximo 10 resultados). */
 export async function buscarPersonas(texto: string, signal?: AbortSignal): Promise<PersonaBuscada[]> {
   const q = texto.trim();
