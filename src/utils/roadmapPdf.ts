@@ -33,6 +33,12 @@ const ESTADO_COLOR: Record<NodeStatus, { fondo: RGB; texto: RGB; etiqueta: strin
 
 const NIVEL: Record<string, string> = { principiante: 'Principiante', intermedio: 'Intermedio', avanzado: 'Avanzado' };
 
+/** El estado del curso; uno ya aprobado que se dio de baja sigue completado, pero lo dice. */
+function etiquetaDe(nodo: RoadmapNode): string {
+  const base = ESTADO_COLOR[nodo.status].etiqueta;
+  return nodo.dadoDeBaja && nodo.status === 'completed' ? `${base} (baja)` : base;
+}
+
 /** El PDF usa fuentes estándar (Latin-1): se quitan emojis y símbolos que no se podrían dibujar. */
 function limpio(texto: string): string {
   return texto
@@ -146,7 +152,8 @@ export async function crearPdfRoadmap(vista: RoadmapView, nombre: string): Promi
   if (vista.tiempo) {
     const t = vista.tiempo;
     parrafo(
-      `Tu tiempo: ${t.horasPorSemana} h por semana durante ${t.semanas} semanas (${t.presupuesto} h). Esta ruta suma ${vista.progreso.horasTotales} h.`,
+      `Tu tiempo: ${t.horasPorSemana} h por semana durante ${t.semanas} semanas (${t.presupuesto} h). Esta ruta suma ${vista.progreso.horasTotales} h` +
+        (vista.progreso.horasFaltan < vista.progreso.horasTotales ? ` y te faltan ${vista.progreso.horasFaltan} h por estudiar.` : '.'),
       { tam: 10, color: MUTED }
     );
     y += 6;
@@ -241,7 +248,7 @@ export async function crearPdfRoadmap(vista: RoadmapView, nombre: string): Promi
         doc.text(titulo, x + 7, y + 14);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
-        doc.text(`${c.etiqueta}${nodo.horas != null ? '  |  ' + nodo.horas + ' h' : ''}`, x + 7, y + altoChip - 7);
+        doc.text(`${etiquetaDe(nodo)}${nodo.horas != null ? '  |  ' + nodo.horas + ' h' : ''}`, x + 7, y + altoChip - 7);
         chips.push({ pagina: paginaActual(), x, y, w: anchoChip, h: altoChip, cursoId: nodo.cursoId });
       });
       y += altoChip + gap;
@@ -296,7 +303,7 @@ export async function crearPdfRoadmap(vista: RoadmapView, nombre: string): Promi
     doc.text(titulo, MARGIN + 16, y + 21);
     doc.setFontSize(8.5);
     doc.setTextColor(...(nodo.status === 'locked' ? MUTED : TEAL));
-    doc.text(c.etiqueta.toUpperCase(), PAGE_W - MARGIN - 10, y + 21, { align: 'right' });
+    doc.text(etiquetaDe(nodo).toUpperCase(), PAGE_W - MARGIN - 10, y + 21, { align: 'right' });
     y += altoTitulo + 8;
 
     const datos = [

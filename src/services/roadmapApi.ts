@@ -21,8 +21,23 @@ export async function fetchRoadmap(): Promise<RoadmapView | null> {
     (s) => ({ url: `${CURSOS_API}/api/cursos/completados?usuarioId=${s.usuarioId}` }),
     SERVICIO
   );
-  const completados = await readJson<{ cursoId: number }[]>(completadosRes, SERVICIO);
-  return construirRoadmap(roadmap, new Set(completados.map((c) => c.cursoId)));
+  const completados = await readJson<{ cursoId: number; titulo?: string; categoria?: string; fechaCompletado?: string }[]>(completadosRes, SERVICIO);
+
+  // lo que ya había aprobado ANTES de armar esta ruta, en sus áreas: un roadmap nuevo no lo vuelve a ofrecer
+  const enRuta = new Set(roadmap.cursos.map((c) => c.cursoId));
+  const armadoEn = Date.parse(roadmap.creadoEn);
+  const areas = new Set(roadmap.intereses ?? []);
+  const aprobadosAntes = completados
+    .filter(
+      (c) =>
+        !enRuta.has(c.cursoId) &&
+        c.fechaCompletado != null &&
+        Date.parse(c.fechaCompletado) <= armadoEn &&
+        (areas.size === 0 || (c.categoria != null && areas.has(c.categoria)))
+    )
+    .map((c) => ({ cursoId: c.cursoId, titulo: String(c.titulo ?? '') }));
+
+  return construirRoadmap(roadmap, new Set(completados.map((c) => c.cursoId)), aprobadosAntes);
 }
 
 export interface PerfilParaRoadmap {

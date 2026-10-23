@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement, type ReactNode } from 'react';
 import { CATEGORY_STYLE } from '../CategoryGlyph';
 import Brote from './Brote';
 import CambioDePersonaje from './CambioDePersonaje';
@@ -32,6 +32,8 @@ interface Props {
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   tema: TemaMundo;
+  /** Si viene, el mapa muestra el botón para cambiar entre noche y día. */
+  onCambiarTema?: (tema: TemaMundo) => void;
 }
 
 interface Pt {
@@ -133,7 +135,7 @@ const MONTANAS = {
 function textoDeEstado(n: RoadmapNode): string {
   switch (n.status) {
     case 'completed':
-      return 'Aprobado';
+      return n.dadoDeBaja ? 'Aprobado · ya no disponible' : 'Aprobado';
     case 'current':
       return 'Tu siguiente paso';
     case 'available':
@@ -145,6 +147,24 @@ function textoDeEstado(n: RoadmapNode): string {
       return falta ? `Antes: ${falta.titulo}` : 'Bloqueado';
     }
   }
+}
+
+/** Un botón de la barra de herramientas del mapa: solo el ícono, con su nombre para quien usa lector de pantalla. */
+function Herramienta({ titulo, onClick, noche, activo, children }: { titulo: string; onClick: () => void; noche: boolean; activo?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={titulo}
+      title={titulo}
+      aria-pressed={activo}
+      onClick={onClick}
+      className={`w-9 h-9 flex items-center justify-center cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#12C2A8] ${
+        noche ? 'text-white hover:bg-white/10' : 'text-[#1F2D2A] hover:bg-[#0E8A7D]/10'
+      } ${activo ? (noche ? 'bg-white/15' : 'bg-[#0E8A7D]/15') : ''}`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function mulberry32(seed: number) {
@@ -343,7 +363,8 @@ function armarPlano(nodos: RoadmapNode[], stages: RoadmapView['stages'], orient:
   const reposo = (e: Ext): Pt => {
     if (e === 'inicio') return orient === 'h' ? { x: inicio.x + (noche ? 66 : 58), y: inicio.y + 20 } : { x: inicio.x + 64, y: inicio.y + 44 };
     if (e === 'meta') return orient === 'h' ? { x: meta.x - 72, y: meta.y + 34 } : { x: meta.x - 72, y: meta.y + 40 };
-    const c = posDe.get(e)!;
+    const c = posDe.get(e);
+    if (!c) return reposo('inicio'); // un curso que ya no está en la ruta (por ejemplo, tras actualizar el roadmap)
     return orient === 'h' ? { x: c.x + 54, y: c.y + 10 } : { x: c.x + 58, y: c.y + 12 };
   };
 
@@ -494,7 +515,7 @@ const NAVE = 'M7 0 L-1.5 -3.1 L-4.2 -2 L-4.2 2 L-1.5 3.1 Z';
 
 // ---- el mapa -----------------------------------------------------------------------------------------------------
 
-export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
+export default function MundoMap({ vista, selectedId, onSelect, tema, onCambiarTema }: Props) {
   const noche = tema === 'noche';
   const uid = useId().replace(/:/g, '');
   const contenedor = useRef<HTMLDivElement>(null);
@@ -505,6 +526,7 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
   const [agarrando, setAgarrando] = useState(false);
   const [brote, setBrote] = useState<Set<number>>(new Set());
   const [pistaVista, setPistaVista] = useState(true);
+  const [leyendaAbierta, setLeyendaAbierta] = useState(false);
 
   // el personaje
   const [genero, setGenero] = useState<Genero>(leerGenero);
@@ -617,6 +639,8 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
   // si cambia el plano (por ejemplo al girar el celular) y no está caminando, se queda en su lugar
   useEffect(() => {
     if (!plano || caminandoRef.current) return;
+    // si el curso donde estaba parado ya no está en la ruta (al actualizar el roadmap pasa), vuelve al inicio
+    if (typeof enLugar.current === 'number' && !plano.colocados.some((c) => c.nodo.cursoId === enLugar.current)) enLugar.current = 'inicio';
     const p = plano.reposo(enLugar.current);
     poner(p);
     setReposoPt(p);
@@ -841,7 +865,20 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
       );
       return;
     }
-    moverBrote(n.cursoId);
+    moverBrote(n.cursoId, {
+      // un curso aprobado que se dio de baja: el avance se conserva, pero se avisa
+      alFinal: n.dadoDeBaja
+        ? () =>
+            decir(
+              {
+                texto: 'Ya aprobaste este curso y ese avance se queda contigo, pero se dio de baja. Actualiza tu roadmap para ver opciones activas.',
+                tono: 'aviso',
+                punto: planoRef.current?.reposo(n.cursoId) ?? reposoPt,
+              },
+              9000
+            )
+        : undefined,
+    });
   }
 
   function alTocarMeta() {
@@ -1090,7 +1127,6 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
   const colocadoSobre = nodoSobre && plano ? plano.colocados.find((c) => c.nodo.cursoId === nodoSobre.cursoId) : undefined;
   const aEnPantalla = (p: Pt) => ({ x: cam.x + p.x * cam.k, y: cam.y + p.y * cam.k });
   const chip = noche ? 'bg-[#07110F]/80 border-white/10 text-[#E6EFE9]' : 'bg-white/85 border-[#0E8A7D]/25 text-[#1F2D2A]';
-  const boton = noche ? 'bg-[#07110F]/85 border-white/10 hover:border-white/40 text-white' : 'bg-white/90 border-[#0E8A7D]/25 hover:border-[#0E8A7D] text-[#1F2D2A]';
   const montanas = MONTANAS[tema];
 
   let tooltip: ReactElement | null = null;
@@ -1160,6 +1196,8 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
   }
 
   const escala = plano && horizontal ? Math.min(150 / plano.ancho, 84 / plano.alto) : 0;
+  // con pocos cursos el mapa entra completo y el minimapa sobra: aparece al acercar o cuando la ruta es larga
+  const mapaRecortado = Boolean(plano) && (caja.w / cam.k < (plano?.ancho ?? 0) - 24 || caja.h / cam.k < (plano?.alto ?? 0) - 24);
   const accesoriosIds = apariencia.accesorios.map((a) => a.id);
 
   return (
@@ -1411,6 +1449,7 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
                           </linearGradient>
                         </defs>
                         {actual && <polygon points={HEX} fill="none" stroke="#F5A524" strokeWidth={2} className="gl-const-pulse" />}
+                        {n.dadoDeBaja && <polygon points={HEX} fill="none" stroke="#F87171" strokeWidth={2} strokeDasharray="5 4" transform="translate(42 48) scale(1.16) translate(-42 -48)" />}
                         {elegido && <polygon points={HEX} fill="none" stroke={noche ? '#FFFFFF' : '#1F2D2A'} strokeWidth={2} transform="translate(42 48) scale(1.18) translate(-42 -48)" opacity={0.9} />}
                         <polygon points={HEX} fill={bloqueado ? (noche ? '#13221F' : '#BCC9C2') : `url(#${gid})`} stroke={borde} strokeWidth={hecho || actual ? 3.5 : 2.5} strokeLinejoin="round" />
                         {!bloqueado && <polygon points={HEX} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth={1} transform="translate(42 48) scale(0.78) translate(-42 -48)" />}
@@ -1459,9 +1498,19 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
                         <Nivel nivel={n.nivel} apagado={noche ? 'bg-white/15' : 'bg-[#1F2D2A]/15'} />
                         {n.horas != null && <span>{n.horas} h</span>}
                       </span>
-                      <span className="mt-1 inline-block max-w-full truncate rounded-full px-2 py-px text-[10px] font-semibold align-top" style={{ color: noche ? est.texto : TEXTO_DIA[n.status], background: est.fondo }}>
-                        {textoDeEstado(n)}
-                      </span>
+                      {/* el estado se lee en el color y el ícono del nodo; la etiqueta solo aparece cuando hay algo que atender */}
+                      {(actual || n.status === 'unavailable' || n.dadoDeBaja) && (
+                        <span
+                          className="mt-1 inline-block max-w-full truncate rounded-full px-2 py-px text-[10px] font-semibold align-top"
+                          style={
+                            n.dadoDeBaja && hecho
+                              ? { color: noche ? '#F87171' : '#DC2626', background: 'rgba(248,113,113,0.14)' }
+                              : { color: noche ? est.texto : TEXTO_DIA[n.status], background: est.fondo }
+                          }
+                        >
+                          {textoDeEstado(n)}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </div>
@@ -1494,10 +1543,6 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
           {/* arriba a la izquierda: tu avance y tu personaje (todo lo demás se queda quieto) */}
           <div className="absolute left-3 top-3 z-20" onPointerDown={(e) => e.stopPropagation()}>
             <div className="flex flex-wrap items-center gap-1.5">
-              <p className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold backdrop-blur ${chip}`}>
-                <span className="text-[#F5A524]">★</span>
-                {vista.progreso.completados} de {vista.progreso.total} {noche ? 'estrellas encendidas' : 'cursos aprobados'}
-              </p>
               <button
                 type="button"
                 aria-expanded={selectorAbierto}
@@ -1540,35 +1585,79 @@ export default function MundoMap({ vista, selectedId, onSelect, tema }: Props) {
             )}
           </div>
 
-          {horizontal && (
-            <>
-              {/* controles */}
-              <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
-                <div className="flex gap-1.5">
-                  <button type="button" onClick={() => haciaMiPaso(900)} className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold backdrop-blur cursor-pointer transition-colors ${boton} ${noche ? 'text-[#F8C961]' : ''}`}>
-                    Mi paso
-                  </button>
-                  <button type="button" onClick={verTodo} className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold backdrop-blur cursor-pointer transition-colors ${boton}`}>
-                    Ver todo
-                  </button>
-                </div>
-                <div className="flex gap-1.5">
-                  <button type="button" aria-label="Alejar" onClick={() => zoomEn(caja.w / 2, caja.h / 2, 1 / 1.3, true)} className={`w-8 h-8 rounded-lg border text-base leading-none backdrop-blur cursor-pointer transition-colors ${boton}`}>−</button>
-                  <button type="button" aria-label="Acercar" onClick={() => zoomEn(caja.w / 2, caja.h / 2, 1.3, true)} className={`w-8 h-8 rounded-lg border text-base leading-none backdrop-blur cursor-pointer transition-colors ${boton}`}>+</button>
-                </div>
+          {/* herramientas: un solo grupo con íconos, en vez de una fila de botones con texto */}
+          {(onCambiarTema || horizontal) && (
+            <div className="absolute right-3 top-3 z-20" onPointerDown={(e) => e.stopPropagation()}>
+              <div
+                role="toolbar"
+                aria-label="Herramientas del mapa"
+                aria-orientation="vertical"
+                className={`flex flex-col divide-y overflow-hidden rounded-xl border backdrop-blur ${noche ? 'bg-[#07110F]/85 border-white/10 divide-white/10' : 'bg-white/90 border-[#0E8A7D]/25 divide-[#0E8A7D]/15'}`}
+              >
+                {onCambiarTema && (
+                  <Herramienta noche={noche} titulo={noche ? 'Pasar al día' : 'Pasar a la noche'} onClick={() => onCambiarTema(noche ? 'dia' : 'noche')}>
+                    <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                      {noche ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4L7 17M17 7l1.4-1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" />
+                      )}
+                    </svg>
+                  </Herramienta>
+                )}
+                {horizontal && (
+                  <>
+                    <Herramienta noche={noche} titulo="Ir a mi paso" onClick={() => haciaMiPaso(900)}>
+                      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <circle cx={12} cy={12} r={3} />
+                        <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                      </svg>
+                    </Herramienta>
+                    <Herramienta noche={noche} titulo="Ver todo el mapa" onClick={verTodo}>
+                      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                      </svg>
+                    </Herramienta>
+                    <Herramienta noche={noche} titulo="Acercar" onClick={() => zoomEn(caja.w / 2, caja.h / 2, 1.3, true)}>
+                      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                      </svg>
+                    </Herramienta>
+                    <Herramienta noche={noche} titulo="Alejar" onClick={() => zoomEn(caja.w / 2, caja.h / 2, 1 / 1.3, true)}>
+                      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <path strokeLinecap="round" d="M5 12h14" />
+                      </svg>
+                    </Herramienta>
+                    <Herramienta noche={noche} titulo="Qué significan los colores" activo={leyendaAbierta} onClick={() => setLeyendaAbierta((v) => !v)}>
+                      <span className="text-sm font-bold leading-none" aria-hidden="true">?</span>
+                    </Herramienta>
+                  </>
+                )}
               </div>
+            </div>
+          )}
 
-              {/* leyenda */}
-              <div className={`absolute left-3 bottom-3 z-20 flex flex-wrap gap-x-3 gap-y-1 max-w-[55%] rounded-lg border px-2.5 py-1.5 backdrop-blur pointer-events-none ${noche ? 'bg-[#07110F]/75 border-white/10' : 'bg-white/80 border-[#0E8A7D]/20'}`}>
-                {([['completed', 'Aprobado'], ['current', 'Tu paso'], ['available', 'Listo'], ['locked', 'Bloqueado']] as [NodeStatus, string][]).map(([k, t]) => (
-                  <span key={k} className={`inline-flex items-center gap-1.5 text-[10px] ${noche ? 'text-[#BCC9C2]' : 'text-[#3C4F49]'}`}>
-                    <span className="w-2 h-2 rounded-full" style={{ background: !noche && k === 'locked' ? '#8FA39B' : ESTADO[k].borde, boxShadow: noche ? `0 0 6px ${ESTADO[k].glow}` : undefined }} />
+          {/* leyenda: solo cuando la persona la pide */}
+          {horizontal && leyendaAbierta && (
+            <div
+              role="note"
+              onPointerDown={(e) => e.stopPropagation()}
+              className={`absolute right-14 top-3 z-20 rounded-xl border px-3 py-2.5 backdrop-blur gl-fade-up ${noche ? 'bg-[#07110F]/92 border-white/10' : 'bg-white/95 border-[#0E8A7D]/25'}`}
+            >
+              <ul className="space-y-1.5">
+                {([['completed', 'Aprobado'], ['current', 'Tu siguiente paso'], ['available', 'Listo para ti'], ['locked', 'Bloqueado: falta un requisito'], ['unavailable', 'Ya no disponible']] as [NodeStatus, string][]).map(([k, t]) => (
+                  <li key={k} className={`flex items-center gap-2 text-[11px] ${noche ? 'text-[#BCC9C2]' : 'text-[#3C4F49]'}`}>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: k === 'unavailable' ? '#F87171' : !noche && k === 'locked' ? '#8FA39B' : ESTADO[k].borde, boxShadow: noche && k !== 'unavailable' ? `0 0 6px ${ESTADO[k].glow}` : undefined }} />
                     {t}
-                  </span>
+                  </li>
                 ))}
-              </div>
+              </ul>
+            </div>
+          )}
 
-              {/* minimapa */}
+          {/* minimapa: solo cuando parte del mapa queda fuera de la vista */}
+          {horizontal && mapaRecortado && (
+            <>
               <button
                 type="button"
                 aria-label="Minimapa: haz clic para ir a esa zona"

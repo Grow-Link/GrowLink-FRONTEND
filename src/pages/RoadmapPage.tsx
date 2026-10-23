@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Navbar from '../components/Navbar';
 import Button from '../components/Button';
 import ExamModal from '../components/ExamModal';
@@ -51,6 +51,74 @@ function useEsEscritorio() {
   return esEscritorio;
 }
 
+interface MenuOpcionesProps {
+  generando: boolean;
+  pdf: 'idle' | 'descargando' | 'compartiendo';
+  puedeCompartir: boolean;
+  onActualizar: () => void;
+  onCambiarMeta: () => void;
+  onDescargar: () => void;
+  onCompartir: () => void;
+}
+
+/** Las acciones que no se usan a cada rato (actualizar, cambiar la meta, el PDF), recogidas en un solo menú. */
+function MenuOpciones({ generando, pdf, puedeCompartir, onActualizar, onCambiarMeta, onDescargar, onCompartir }: MenuOpcionesProps) {
+  const [abierto, setAbierto] = useState(false);
+  const caja = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: PointerEvent) => {
+      if (caja.current && !caja.current.contains(e.target as Node)) setAbierto(false);
+    };
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAbierto(false);
+    };
+    document.addEventListener('pointerdown', fuera);
+    document.addEventListener('keydown', tecla);
+    return () => {
+      document.removeEventListener('pointerdown', fuera);
+      document.removeEventListener('keydown', tecla);
+    };
+  }, [abierto]);
+
+  const item = 'w-full text-left px-3.5 py-2.5 text-sm font-medium text-[#1F2D2A] dark:text-[#E6EFE9] hover:bg-[#F6F7F2] dark:hover:bg-[#1A2C27] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2';
+  const elegir = (accion: () => void) => () => {
+    setAbierto(false);
+    accion();
+  };
+
+  return (
+    <div ref={caja} className="relative shrink-0">
+      <Button variant="secondary" size="sm" aria-haspopup="menu" aria-expanded={abierto} onClick={() => setAbierto((v) => !v)}>
+        {generando || pdf !== 'idle' ? <Spinner /> : null}
+        Opciones
+        <svg className={`w-3.5 h-3.5 transition-transform ${abierto ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+        </svg>
+      </Button>
+      {abierto && (
+        <div role="menu" className="absolute right-0 top-full mt-1.5 z-40 w-56 overflow-hidden rounded-xl border border-[#E1E6DF] dark:border-[#27403A] bg-white dark:bg-[#15231F] shadow-xl gl-fade-up">
+          <button type="button" role="menuitem" className={item} disabled={generando} onClick={elegir(onActualizar)}>
+            Actualizar roadmap
+          </button>
+          <button type="button" role="menuitem" className={item} onClick={elegir(onCambiarMeta)}>
+            Cambiar mi meta
+          </button>
+          <button type="button" role="menuitem" className={`${item} border-t border-[#E1E6DF] dark:border-[#27403A]`} disabled={pdf !== 'idle'} onClick={elegir(onDescargar)}>
+            Descargar PDF
+          </button>
+          {puedeCompartir && (
+            <button type="button" role="menuitem" className={item} disabled={pdf !== 'idle'} onClick={elegir(onCompartir)}>
+              Compartir
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CLAVE_VISTA = 'gl_vista_roadmap';
 
 function temaGuardado(): TemaMundo {
@@ -79,6 +147,7 @@ export default function RoadmapPage() {
   const [pdf, setPdf] = useState<'idle' | 'descargando' | 'compartiendo'>('idle');
   const [errorPdf, setErrorPdf] = useState<string | null>(null);
   const [tipoMapa, setTipoMapa] = useState<TemaMundo>(temaGuardado);
+  const [resumenAbierto, setResumenAbierto] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -216,7 +285,6 @@ export default function RoadmapPage() {
   const nodoSeleccionado = vista.nodes.find((n) => n.cursoId === seleccionado) ?? null;
   // en escritorio el panel nunca está vacío: si nadie tocó nada, muestra el siguiente paso
   const nodoDelPanel = nodoSeleccionado ?? (esEscritorio ? vista.siguiente ?? vista.nodes[0] ?? null : null);
-  const terminado = vista.progreso.total > 0 && vista.progreso.completados === vista.progreso.total;
   const etiquetaOrigen =
     vista.generadoPor === 'IA' ? 'Armado con inteligencia artificial' : vista.generadoPor === 'RESPALDO' ? 'Armado en modo de respaldo (sin IA)' : 'Tu roadmap';
 
@@ -233,113 +301,115 @@ export default function RoadmapPage() {
     />
   );
 
+  const quedan = vista.progreso.horasFaltan;
+  const terminado = vista.progreso.total > 0 && vista.progreso.completados === vista.progreso.total;
+  const hayAviso = Boolean(logro) || terminado || vista.hayDadosDeBaja || Boolean(errorGenerar) || Boolean(errorPdf);
+
   return (
     <div className={page}>
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* ---------------- encabezado ---------------- */}
-        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0E8A7D] via-[#0B7A6E] to-[#0B6F65] text-white p-5 sm:p-8">
-          <div aria-hidden="true" className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-[#12C2A8]/25 blur-3xl" />
-          <div aria-hidden="true" className="absolute -left-10 -bottom-20 w-56 h-56 rounded-full bg-[#F5A524]/20 blur-3xl" />
-          <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
-            <div className="flex-1 min-w-0">
-              <span className="text-[#B7E3DA] text-xs font-mono font-semibold tracking-widest uppercase">{etiquetaOrigen}</span>
-              <h1 className="text-2xl sm:text-4xl font-display font-bold mt-2 leading-tight">
-                {vista.meta ? <>Tu ruta hacia <span className="text-[#F5D98B]">«{vista.meta}»</span></> : 'Tu camino de aprendizaje'}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+        {/* ---------------- encabezado: el título y una línea, nada más ---------------- */}
+        <header>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <span className="text-[#0E8A7D] dark:text-[#5FD3C2] text-[11px] font-mono font-semibold tracking-widest uppercase">{etiquetaOrigen}</span>
+              <h1 title={vista.meta || undefined} className="text-lg sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-1 leading-tight text-balance line-clamp-3 sm:line-clamp-none">
+                {vista.meta ? <>Tu ruta hacia <span className="text-[#0E8A7D] dark:text-[#5FD3C2]">«{vista.meta}»</span></> : 'Tu camino de aprendizaje'}
               </h1>
-              {vista.resumen && <p className="mt-3 text-[#D3EEE8] text-sm sm:text-base leading-relaxed max-w-2xl">{vista.resumen}</p>}
-              <div className="flex flex-wrap gap-2 mt-4">
-                {vista.areas.map((a) => (
-                  <span key={a} className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">{a}</span>
-                ))}
-                <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Parto como {vista.nivel}</span>
-                {vista.tiempo && (
-                  <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium" title="Tu ruta se armó para que quepa en este tiempo">
-                    {vista.tiempo.horasPorSemana} h por semana · {vista.tiempo.semanas} semanas · suma {vista.progreso.horasTotales} de {vista.tiempo.presupuesto} h
-                  </span>
-                )}
-                <span className="px-2.5 py-1 rounded-full bg-white/15 text-xs font-medium">Armado {timeAgo(vista.creadoEn)}</span>
-              </div>
             </div>
+            <MenuOpciones
+              generando={generando}
+              pdf={pdf}
+              puedeCompartir={puedeCompartirPdf()}
+              onActualizar={actualizarRoadmap}
+              onCambiarMeta={() => navigate('onboarding')}
+              onDescargar={bajarPdf}
+              onCompartir={compartirPdf}
+            />
           </div>
-
-        </section>
-
-        {/* ---------------- acciones ---------------- */}
-        <div className="flex flex-wrap items-center gap-2.5 mt-4">
-          <Button variant="secondary" size="sm" onClick={() => navigate('onboarding')}>Cambiar mi meta</Button>
-          <Button variant="secondary" size="sm" onClick={actualizarRoadmap} disabled={generando}>
-            {generando ? <><Spinner /> Actualizando…</> : 'Actualizar roadmap'}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={bajarPdf} disabled={pdf !== 'idle'}>
-            {pdf === 'descargando' ? <><Spinner /> Preparando PDF…</> : 'Descargar PDF'}
-          </Button>
-          {puedeCompartirPdf() && (
-            <Button variant="secondary" size="sm" onClick={compartirPdf} disabled={pdf !== 'idle'}>
-              {pdf === 'compartiendo' ? <><Spinner /> Compartiendo…</> : 'Compartir'}
-            </Button>
+          <p className="mt-2 text-sm text-[#6B7A74] dark:text-[#98B0A6] flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>{vista.areas.join(' · ')}</span>
+            <span aria-hidden="true">·</span>
+            <span>Parto como {vista.nivel}</span>
+            {vista.tiempo && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span title="Tu ruta se armó para que lo que te falta quepa en este tiempo">
+                  {vista.tiempo.horasPorSemana} h por semana × {vista.tiempo.semanas} semanas
+                  {quedan > 0 ? ` · te faltan ${quedan} de ${vista.tiempo.presupuesto} h` : ''}
+                </span>
+              </>
+            )}
+            <span aria-hidden="true">·</span>
+            <span>Armado {timeAgo(vista.creadoEn)}</span>
+            {(vista.resumen || vista.aprobadosAntes.length > 0) && (
+              <button
+                type="button"
+                aria-expanded={resumenAbierto}
+                onClick={() => setResumenAbierto((v) => !v)}
+                className="font-semibold text-[#0E8A7D] dark:text-[#5FD3C2] hover:underline cursor-pointer"
+              >
+                {resumenAbierto ? 'Ocultar' : '¿Por qué esta ruta?'}
+              </button>
+            )}
+          </p>
+          {resumenAbierto && (
+            <div className="mt-2 max-w-3xl space-y-2 text-sm text-[#1F2D2A] dark:text-[#E6EFE9] leading-relaxed gl-fade-up">
+              {vista.resumen && <p>{vista.resumen}</p>}
+              {vista.aprobadosAntes.length > 0 && (
+                <p>
+                  <span className="font-semibold text-[#15803D] dark:text-[#4CE07E]">Lo que ya habías aprobado no se repite: </span>
+                  {vista.aprobadosAntes.slice(0, 4).map((c) => c.titulo).join(', ')}
+                  {vista.aprobadosAntes.length > 4 ? ` y ${vista.aprobadosAntes.length - 4} más` : ''}. Siguen en tu historial de aprobados.
+                </p>
+              )}
+            </div>
           )}
-        </div>
-        {(errorGenerar || errorPdf) && (
-          <p role="alert" className="mt-3 text-sm text-[#DC2626] dark:text-[#F87171]">{errorGenerar ?? errorPdf}</p>
+        </header>
+
+        {/* ---------------- avisos: solo cuando hay algo que decir ---------------- */}
+        {hayAviso && (
+          <div className="mt-4 space-y-3">
+            {(errorGenerar || errorPdf) && (
+              <p role="alert" className="text-sm text-[#DC2626] dark:text-[#F87171]">{errorGenerar ?? errorPdf}</p>
+            )}
+            {logro && (
+              <div role="status" className="rounded-2xl border border-[#4CE07E]/50 bg-[#F0FDF4] dark:bg-[#0D2E1A] px-4 py-3 text-sm font-semibold text-[#15803D] dark:text-[#4CE07E] gl-fade-up">
+                {logro}
+              </div>
+            )}
+            {terminado && (
+              <div className={`${card} p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-2 border-[#F5A524]/60 bg-gradient-to-br from-[#FFFBEB] to-[#FBF3E4] dark:from-[#3A2A0D]/60 dark:to-[#2A200B]/60`}>
+                <div>
+                  <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">🌱 ¡Completaste tu roadmap! Ganaste una semilla para tu jardín.</p>
+                  <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mt-1">Ábrelo para plantarla — ahí mismo se suma a tu jardín.</p>
+                </div>
+                <Button variant="gradient" onClick={() => navigate('garden')} className="shrink-0">Ir a mi jardín</Button>
+              </div>
+            )}
+            {vista.hayDadosDeBaja && (
+              <div role="alert" className="rounded-2xl border border-[#F5A524]/50 bg-[#FBF3E4] dark:bg-[#3A2A0D] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">
+                  <strong>Algún curso de tu ruta ya no está disponible.</strong> Actualiza tu roadmap para ver otras opciones; lo que ya aprobaste se conserva.
+                </p>
+                <Button size="sm" onClick={actualizarRoadmap} disabled={generando}>
+                  {generando ? <><Spinner /> Actualizando…</> : 'Actualizar ahora'}
+                </Button>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* ---------------- avisos ---------------- */}
-        {logro && (
-          <div role="status" className="mt-4 rounded-2xl border border-[#4CE07E]/50 bg-[#F0FDF4] dark:bg-[#0D2E1A] px-4 py-3 text-sm font-semibold text-[#15803D] dark:text-[#4CE07E] gl-fade-up">
-            {logro}
-          </div>
-        )}
-        {terminado && (
-          <div className={`${card} mt-4 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-2 border-[#F5A524]/60 bg-gradient-to-br from-[#FFFBEB] to-[#FBF3E4] dark:from-[#3A2A0D]/60 dark:to-[#2A200B]/60`}>
-            <div>
-              <p className="font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9]">🌱 ¡Completaste tu roadmap! Ganaste una semilla para tu jardín.</p>
-              <p className="text-sm text-[#6B7A74] dark:text-[#98B0A6] mt-1">Ábrelo para plantarla — ahí mismo se suma a tu jardín.</p>
-            </div>
-            <Button variant="gradient" onClick={() => navigate('garden')} className="shrink-0">Ir a mi jardín</Button>
-          </div>
-        )}
-        {vista.hayDadosDeBaja && (
-          <div role="alert" className="mt-4 rounded-2xl border border-[#F5A524]/50 bg-[#FBF3E4] dark:bg-[#3A2A0D] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9]">
-              <strong>Algunos cursos de tu ruta ya no están disponibles.</strong> Actualiza tu roadmap y los reemplazamos por otras opciones; mientras tanto no se recomiendan.
-            </p>
-            <Button size="sm" onClick={actualizarRoadmap} disabled={generando}>Actualizar ahora</Button>
-          </div>
-        )}
-
-        {/* ---------------- nivel, logros y misión ---------------- */}
+        {/* ---------------- tu avance, en una franja ---------------- */}
         <div className="mt-4">
-          <AventuraHud vista={vista} onSelect={setSeleccionado} onTakeExam={setExamenDe} onNuevaMeta={() => navigate('onboarding')} />
+          <AventuraHud vista={vista} onSelect={setSeleccionado} onNuevaMeta={() => navigate('onboarding')} />
         </div>
 
         {/* ---------------- mapa + panel ---------------- */}
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 mt-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-5 mt-4 items-start">
           <div className="min-w-0">
-            <div role="tablist" aria-label="Momento del día del mapa" className="inline-flex p-1 mb-3 rounded-xl bg-white dark:bg-[#15231F] border border-[#E1E6DF] dark:border-[#27403A]">
-              {([['noche', 'Noche'], ['dia', 'Día']] as [TemaMundo, string][]).map(([clave, texto]) => (
-                <button
-                  key={clave}
-                  type="button"
-                  role="tab"
-                  aria-selected={tipoMapa === clave}
-                  onClick={() => cambiarMapa(clave)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
-                    tipoMapa === clave ? 'gl-gradient text-white shadow' : 'text-[#6B7A74] dark:text-[#98B0A6] hover:text-[#1F2D2A] dark:hover:text-[#E6EFE9]'
-                  }`}
-                >
-                  <svg className="inline w-4 h-4 mr-1.5 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                    {clave === 'noche' ? (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" />
-                    ) : (
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4L7 17M17 7l1.4-1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                    )}
-                  </svg>
-                  {texto}
-                </button>
-              ))}
-            </div>
-            <MundoMap vista={vista} selectedId={seleccionado} onSelect={setSeleccionado} tema={tipoMapa} />
+            <MundoMap vista={vista} selectedId={seleccionado} onSelect={setSeleccionado} tema={tipoMapa} onCambiarTema={cambiarMapa} />
           </div>
 
           {esEscritorio ? (

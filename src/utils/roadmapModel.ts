@@ -61,7 +61,8 @@ export interface RoadmapDto {
  * current:      el siguiente paso recomendado (el primero que puede tomar ahora).
  * available:    puede tomarlo ya (sus prerrequisitos de la ruta están aprobados) pero no es el siguiente.
  * locked:       le falta aprobar algún prerrequisito.
- * unavailable:  el curso se dio de baja: ya no se recomienda y hay que actualizar el roadmap.
+ * unavailable:  el curso se dio de baja y todavía no se había aprobado: ya no se recomienda y hay que actualizar el
+ *               roadmap. (Si ya estaba aprobado sigue siendo `completed`; ver RoadmapNode.dadoDeBaja.)
  */
 export type NodeStatus = 'completed' | 'current' | 'available' | 'locked' | 'unavailable';
 
@@ -104,6 +105,11 @@ export interface RoadmapNode {
   /** Si el paso se cumplió aprobando una alternativa (y no el curso de la ruta), cuál fue. */
   cumplidoCon: { cursoId: number; titulo: string; horas: number | null; habilidades: string[] } | null;
   status: NodeStatus;
+  /**
+   * El curso se dio de baja. Es independiente del estado: uno ya aprobado sigue contando como completado (lo aprobado
+   * no se pierde) pero se avisa que ya no está disponible, igual que uno que todavía no se había cursado.
+   */
+  dadoDeBaja: boolean;
 }
 
 export interface Stage {
@@ -119,6 +125,8 @@ export interface Progreso {
   total: number;
   horasHechas: number;
   horasTotales: number;
+  /** Lo que todavía le falta por estudiar (los cursos aprobados no cuentan). */
+  horasFaltan: number;
   porcentaje: number;
   habilidadesDesbloqueadas: string[];
   habilidadesTotales: string[];
@@ -141,6 +149,11 @@ export interface RoadmapView {
   siguiente: RoadmapNode | null;
   /** Hay cursos de la ruta que se dieron de baja: conviene actualizar el roadmap. */
   hayDadosDeBaja: boolean;
+  /**
+   * Cursos de las áreas de esta ruta que la persona ya había aprobado ANTES de armarla (los exámenes se pueden
+   * presentar sin roadmap). Un roadmap nuevo no vuelve a ofrecer lo ya completado, así que no están en la ruta.
+   */
+  aprobadosAntes: { cursoId: number; titulo: string }[];
 }
 
 const NOMBRES_ETAPA: { nombre: string; descripcion: string }[] = [
@@ -157,7 +170,7 @@ function nombreDeEtapa(indice: number, total: number): { nombre: string; descrip
   return indice === 1 ? NOMBRES_ETAPA[1] : NOMBRES_ETAPA[2];
 }
 
-export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): RoadmapView {
+export function construirRoadmap(dto: RoadmapDto, completados: Set<number>, aprobadosAntes: RoadmapView['aprobadosAntes'] = []): RoadmapView {
   const cursos = [...dto.cursos].sort((a, b) => a.orden - b.orden);
   const enRuta = new Map(cursos.map((c) => [c.cursoId, c]));
 
@@ -229,6 +242,7 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
         return por && por !== 'principal' ? { cursoId: por.cursoId, titulo: por.titulo, horas: por.duracionHoras, habilidades: por.habilidades ?? [] } : null;
       })(),
       status,
+      dadoDeBaja: !c.activo,
     };
   });
 
@@ -274,11 +288,13 @@ export function construirRoadmap(dto: RoadmapDto, completados: Set<number>): Roa
       total: nodes.length,
       horasHechas,
       horasTotales: horas(nodes),
+      horasFaltan: horas(nodes.filter((n) => n.status !== 'completed')),
       porcentaje: nodes.length === 0 ? 0 : Math.round((hechos.length / nodes.length) * 100),
       habilidadesDesbloqueadas,
       habilidadesTotales,
     },
     siguiente: nodes.find((n) => n.status === 'current') ?? null,
-    hayDadosDeBaja: nodes.some((n) => n.status === 'unavailable'),
+    hayDadosDeBaja: nodes.some((n) => n.dadoDeBaja),
+    aprobadosAntes,
   };
 }
