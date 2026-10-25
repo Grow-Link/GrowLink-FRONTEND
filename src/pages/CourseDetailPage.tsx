@@ -26,6 +26,8 @@ export default function CourseDetailPage() {
   const [prerequisitos, setPrerequisitos] = useState<Course[]>([]);
   const [aprobados, setAprobados] = useState<Set<string>>(new Set());
   const [nodoRoadmap, setNodoRoadmap] = useState<RoadmapNode | null>(null);
+  // true solo si se confirmó que todavía no tiene roadmap (si no se pudo saber, no se avisa nada)
+  const [sinRoadmap, setSinRoadmap] = useState(false);
   const [examenAbierto, setExamenAbierto] = useState(false);
   const [recarga, setRecarga] = useState(0);
   const [nombres, setNombres] = useState<Map<string, string>>(new Map());
@@ -48,10 +50,12 @@ export default function CourseDetailPage() {
         setPrerequisitos(previos.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : [])));
 
         if (rol === 'user') {
-          const [completados, vista] = await Promise.all([listarCompletados(Number(currentUser.id)), fetchRoadmap().catch(() => null)]);
+          // vista: null = todavía no tiene roadmap; undefined = no se pudo consultar
+          const [completados, vista] = await Promise.all([listarCompletados(Number(currentUser.id)), fetchRoadmap().catch(() => undefined)]);
           if (ignorar) return;
           setAprobados(new Set(completados.map((x) => String(x.cursoId))));
           setNodoRoadmap(vista?.nodes.find((n) => String(n.cursoId) === c.id) ?? null);
+          setSinRoadmap(vista === null);
         }
       })
       .catch((err: unknown) => {
@@ -227,12 +231,20 @@ export default function CourseDetailPage() {
             {rol === 'user' && (
               <>
                 {aprobado ? (
-                  <div className="rounded-xl bg-[#4CE07E]/15 text-[#15803D] dark:text-[#4CE07E] px-3.5 py-3 text-sm font-semibold">✓ Ya aprobaste este curso.</div>
+                  <div className="rounded-xl bg-[#4CE07E]/15 text-[#15803D] dark:text-[#4CE07E] px-3.5 py-3 text-sm font-semibold">
+                    ✓ Ya aprobaste este curso.
+                    {sinRoadmap && <span className="block font-normal text-xs mt-1">Cuando armes tu roadmap no se te volverá a ofrecer.</span>}
+                  </div>
                 ) : (
                   <>
                     <p className="text-sm text-[#1F2D2A] dark:text-[#E6EFE9] leading-relaxed">
                       Estudia el contenido y, cuando estés listo, presenta el examen. Con {70}% o más, el curso queda completado.
                     </p>
+                    {sinRoadmap && !inactivo && tieneExamen && (
+                      <p className="text-xs rounded-lg bg-[#EDF1EA] dark:bg-[#1A2C27] text-[#1F2D2A] dark:text-[#E6EFE9] px-3 py-2 leading-relaxed">
+                        Todavía no tienes un roadmap. Puedes presentar el examen igual: si lo apruebas, el curso queda en tu historial y no se te repetirá cuando armes tu ruta.
+                      </p>
+                    )}
                     {previosPendientes.length > 0 && (
                       <p className="text-xs rounded-lg bg-[#FBF3E4] dark:bg-[#3A2A0D]/50 text-[#B45309] dark:text-[#FBBF24] px-3 py-2">
                         Te recomendamos aprobar antes: {previosPendientes.map((p) => p.title).join(', ')}.
