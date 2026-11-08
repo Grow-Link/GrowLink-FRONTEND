@@ -222,6 +222,8 @@ export default function TriviaRoomPage() {
           joinedCodeRef.current = sala.codigo;
         }
       },
+      // modo oidc: el token no sirvió ni renovándolo, así que ya no se reintenta (ver triviaSocket)
+      onAuthError: setWsErrorMsg,
     });
     socket.connect();
     socketRef.current = socket;

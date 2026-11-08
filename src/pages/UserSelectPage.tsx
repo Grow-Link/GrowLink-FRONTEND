@@ -3,7 +3,9 @@ import logo from '../imports/logoGrowLink.png';
 import { useNavigation } from '../store/NavigationContext';
 import { useTheme } from '../store/ThemeContext';
 import LiveIndicator from '../components/LiveIndicator';
+import MicrosoftSignIn from '../components/auth/MicrosoftSignIn';
 import { getUsuariosQuemados, rolDesdeBackend, type UsuarioQuemado } from '../services/usuariosServiceApi';
+import { esOidc } from '../services/authMode';
 import type { UserRole } from '../types';
 
 const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string }> = {
@@ -15,8 +17,12 @@ const ROLE_META: Record<UserRole, { label: string; accent: string; ring: string 
 const ROLE_ORDER: UserRole[] = ['user', 'publisher', 'admin'];
 
 export default function UserSelectPage() {
-  const { login, sessionExpired, navigate } = useNavigation();
+  const { login, sessionExpired, navigate, resolviendoSesion } = useNavigation();
   const { isDark, toggle } = useTheme();
+
+  // Con VITE_AUTH_MODE=oidc esta pantalla es solo el botón de Microsoft: no hay usuarios de demostración que
+  // elegir, la identidad la da Entra ID (ver services/msalAuth.ts).
+  const conMicrosoft = esOidc();
 
   const [usuarios, setUsuarios] = useState<UsuarioQuemado[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -25,6 +31,7 @@ export default function UserSelectPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (conMicrosoft) return;
     let ignore = false;
     setLoadError(null);
     getUsuariosQuemados()
@@ -37,7 +44,7 @@ export default function UserSelectPage() {
     return () => {
       ignore = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, conMicrosoft]);
 
   async function handleLogin(usuario: UsuarioQuemado) {
     setLoggingInId(usuario.id);
@@ -97,8 +104,17 @@ export default function UserSelectPage() {
         <div className="relative z-10 inline-flex">
           <div className="gl-card-hover relative overflow-hidden border border-white/10 rounded-xl p-4 bg-white/5 backdrop-blur-sm">
             <div className="absolute top-0 left-0 w-full h-0.5 gl-gradient" />
-            <p className="text-2xl font-mono font-bold text-white">{usuarios ? usuarios.length : '…'}</p>
-            <p className="text-xs text-[#98B0A6] mt-1">Usuarios de demostración</p>
+            {conMicrosoft ? (
+              <>
+                <p className="text-sm font-display font-bold text-white">Cuenta corporativa</p>
+                <p className="text-xs text-[#98B0A6] mt-1">Entras con tu cuenta de Microsoft</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-mono font-bold text-white">{usuarios ? usuarios.length : '…'}</p>
+                <p className="text-xs text-[#98B0A6] mt-1">Usuarios de demostración</p>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -117,9 +133,17 @@ export default function UserSelectPage() {
           </button>
 
           <div className="mb-8">
-            <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">Acceso de demostración</span>
-            <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">Elige con quién quieres entrar</h2>
-            <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1.5">Sin contraseña — cada perfil representa un rol distinto dentro de GrowLink.</p>
+            <span className="text-[#12C2A8] text-xs font-mono font-semibold tracking-widest uppercase">
+              {conMicrosoft ? 'Acceso' : 'Acceso de demostración'}
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#1F2D2A] dark:text-[#E6EFE9] mt-2">
+              {conMicrosoft ? 'Entra a GrowLink' : 'Elige con quién quieres entrar'}
+            </h2>
+            <p className="text-[#6B7A74] dark:text-[#98B0A6] mt-1.5">
+              {conMicrosoft
+                ? 'Usa tu cuenta de Microsoft. La primera vez te preguntamos cómo vas a usar la plataforma.'
+                : 'Sin contraseña — cada perfil representa un rol distinto dentro de GrowLink.'}
+            </p>
           </div>
 
           {sessionExpired && !loginError && (
@@ -134,7 +158,19 @@ export default function UserSelectPage() {
             </div>
           )}
 
-          {loadError ? (
+          {conMicrosoft ? (
+            resolviendoSesion ? (
+              <div className="flex items-center gap-2 text-sm text-[#6B7A74] dark:text-[#98B0A6] py-6">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Comprobando tu sesión...
+              </div>
+            ) : (
+              <MicrosoftSignIn />
+            )
+          ) : loadError ? (
             <div className="p-5 rounded-2xl border border-[#EF4444]/30 bg-[#FEF2F2] dark:bg-[#2A1111]">
               <p className="text-sm text-[#DC2626] dark:text-[#F87171] mb-3">{loadError}</p>
               <button

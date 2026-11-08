@@ -123,6 +123,7 @@ export interface AdminMetrics {
 export type Page =
   | 'landing'
   | 'select-user'
+  | 'role-choice'
   | 'home'
   | 'onboarding'
   | 'roadmap'
