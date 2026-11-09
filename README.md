@@ -50,6 +50,8 @@ Tiene tres roles:
 - **Tailwind CSS v4** — estilos con `@tailwindcss/vite`
 - **React Router v7** — rutas reales por página, con guarda de sesión
 - **Recharts** — gráficas del panel de administración
+- **MSAL** (`@azure/msal-browser`) — inicio de sesión con Microsoft, opcional (ver «Inicio de sesión»)
+- **Vitest** — pruebas de la lógica (servicios y utilidades) con cobertura
 - **oxfmt** — formateo de código
 
 ---
@@ -68,6 +70,12 @@ npm run build
 
 # Previsualizar el build de producción
 npm run preview
+
+# Pruebas (Vitest)
+npm test
+
+# Pruebas con reporte de cobertura (texto en consola y lcov en coverage/)
+npm run test:coverage
 ```
 
 El servidor de desarrollo corre en `http://localhost:5173` por defecto.
@@ -111,6 +119,37 @@ El color principal es un verde azulado sereno con acentos cálidos (ámbar y cor
 ## Navegación
 
 Cada rol tiene su inicio (usuario → Inicio, publicador → Mis cursos, admin → Métricas) y solo ve sus pantallas. Los **roadmaps son para quienes aprenden**: el publicador gestiona cursos y preguntas de trivia (y puede jugar), el admin modera y mira métricas. El botón «atrás» del navegador no puede llevar a pantallas de una sesión anterior: cada inicio de sesión marca el historial y las entradas de otra sesión se reemplazan por el inicio del rol.
+
+## Inicio de sesión
+
+Hay dos modos y se eligen con `VITE_AUTH_MODE` en un `.env.local`:
+
+| `VITE_AUTH_MODE` | Qué pasa |
+| --- | --- |
+| `legacy` (por defecto) | El login de demostración: se elige una persona de `GET /api/auth/usuarios` y usuarios-service emite el JWT. |
+| `oidc` | Botón **«Iniciar sesión con Microsoft»** (Entra ID, Authorization Code + PKCE con MSAL). |
+
+En modo `oidc` hacen falta tres variables más, todas públicas — aquí no va ningún secreto, el flujo con PKCE no usa client secret:
+
+```ini
+VITE_AUTH_MODE=oidc
+VITE_AZURE_CLIENT_ID=<id de la aplicación registrada en Entra ID>
+VITE_AZURE_AUTHORITY=https://login.microsoftonline.com/<tenant-id>
+VITE_API_SCOPE=api://<id-del-api>/acceso
+```
+
+En la aplicación de Entra ID, el *redirect URI* se registra como **SPA** y es el origen del front (`http://localhost:5173` en desarrollo).
+
+Qué cambia con `oidc`:
+
+- El `Authorization: Bearer …` de cada llamada lleva el access token de Microsoft. MSAL lo renueva en silencio cuando le faltan menos de 5 minutos para vencer; si la renovación ya no alcanza, la app vuelve a pedir el inicio de sesión.
+- Al entrar se consulta `GET /api/usuarios/me`. Si `rolElegido` es `false`, antes de la app aparece una pantalla para escoger **USUARIO** o **PUBLICADOR** (`PUT /api/usuarios/me/rol`). ADMIN no se ofrece: ese rol lo asigna quien administra.
+- El token también va en el `CONNECT` de STOMP, en el encabezado `Authorization`, que es el que lee `StompAuthChannelInterceptor` de trivia-service. Si en ese repositorio el encabezado tuviera otro nombre, se ajusta con `VITE_WS_AUTH_HEADER` sin tocar código. Si la conexión se rechaza por el token, se reintenta una vez con un token renovado y después se muestra el error.
+- Cerrar sesión limpia también la caché de MSAL.
+
+En modo `legacy` nada de esto corre: ni se carga MSAL, ni el `CONNECT` lleva encabezados.
+
+---
 
 ## Conexión
 

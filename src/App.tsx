@@ -2,6 +2,7 @@ import { NavigationProvider, useNavigation } from './store/NavigationContext';
 import { ThemeProvider } from './store/ThemeContext';
 import LandingPage from './pages/LandingPage';
 import UserSelectPage from './pages/UserSelectPage';
+import RoleChoicePage from './pages/RoleChoicePage';
 import HomePage from './pages/HomePage';
 import OnboardingPage from './pages/OnboardingPage';
 import RoadmapPage from './pages/RoadmapPage';
@@ -25,6 +26,7 @@ function Router() {
   switch (currentPage) {
     case 'landing': return <LandingPage />;
     case 'select-user': return <UserSelectPage />;
+    case 'role-choice': return <RoleChoicePage />;
     case 'home': return <HomePage />;
     case 'onboarding': return <OnboardingPage />;
     case 'roadmap': return <RoadmapPage />;

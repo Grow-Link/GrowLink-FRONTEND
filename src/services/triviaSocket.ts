@@ -16,11 +16,29 @@
 // forma flexible (ver parseRankingItem en TriviaRoomPage) igual que el resto
 // de clientes de este proyecto.
 
-import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs';
+import { Client, type IFrame, type IMessage, type StompSubscription } from '@stomp/stompjs';
+import { esOidc } from './authMode';
+import { obtenerAccessToken } from './msalAuth';
 
 function wsUrl(): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${window.location.host}/ws-trivia`;
+}
+
+/**
+ * Encabezado nativo del frame CONNECT en el que trivia-service espera el token.
+ *
+ * StompAuthChannelInterceptor (trivia-service) lee el token de los encabezados nativos del CONNECT con la
+ * convención de Spring: `Authorization: Bearer <token>`. NO se pudo confirmar contra ese repositorio desde
+ * aquí, así que el nombre se puede cambiar con VITE_WS_AUTH_HEADER sin tocar este archivo — si el
+ * interceptor lee otro (`X-Authorization`, `token`...), basta la variable de entorno.
+ */
+const WS_AUTH_HEADER = (import.meta.env.VITE_WS_AUTH_HEADER ?? '').trim() || 'Authorization';
+
+/** ¿El servidor cortó el CONNECT por el token, o por otra cosa? */
+function esRechazoDeToken(frame: IFrame): boolean {
+  const texto = `${frame.headers?.message ?? ''} ${frame.body ?? ''}`.toLowerCase();
+  return /401|403|unauthor|no autoriz|forbidden|prohib|token|jwt|credential|credencial/.test(texto);
 }
 
 export interface ParticipanteMsg {
@@ -55,26 +73,72 @@ export interface TriviaSocketHandlers {
   onMessage: (msg: SalaMensaje) => void;
   /** true justo cuando queda listo para publicar (ya se puede llamar a unirse). */
   onConnectionChange?: (connected: boolean) => void;
+  /**
+   * El servidor rechazó la conexión por el token y el reintento con un token renovado tampoco pasó
+   * (modo oidc). Ya no se reintenta más: hay que mostrarle el error a la persona.
+   */
+  onAuthError?: (mensaje: string) => void;
 }
 
 export class TriviaSocket {
   private client: Client;
   private subscription: StompSubscription | null = null;
   private handlers: TriviaSocketHandlers;
+  /** La próxima conexión pide un token nuevo a la fuerza (lo activa un rechazo por token). */
+  private renovarToken = false;
+  /** Ya se gastó el único reintento con token renovado. */
+  private reintentoGastado = false;
 
   constructor(private codigo: string, handlers: TriviaSocketHandlers) {
     this.handlers = handlers;
     this.client = new Client({
       brokerURL: wsUrl(),
       reconnectDelay: 3000,
+      // En modo legacy el CONNECT va sin encabezados, exactamente como antes.
+      beforeConnect: async () => {
+        if (!esOidc()) return;
+        try {
+          const token = await obtenerAccessToken(this.renovarToken);
+          this.renovarToken = false;
+          this.client.connectHeaders = { [WS_AUTH_HEADER]: `Bearer ${token}` };
+        } catch (err) {
+          this.client.connectHeaders = {};
+          this.handlers.onAuthError?.(
+            err instanceof Error ? err.message : 'No se pudo obtener el token para la conexión en vivo.'
+          );
+        }
+      },
       onConnect: () => {
+        this.reintentoGastado = false;
         this.subscribeToCurrent();
         this.handlers.onConnectionChange?.(true);
       },
       onDisconnect: () => this.handlers.onConnectionChange?.(false),
       onWebSocketClose: () => this.handlers.onConnectionChange?.(false),
-      onStompError: () => this.handlers.onConnectionChange?.(false),
+      onStompError: (frame) => this.manejarStompError(frame),
     });
+  }
+
+  /**
+   * Un ERROR de STOMP. Si fue por el token (modo oidc) se le da UNA oportunidad más con un token renovado:
+   * el servidor cierra el socket después del ERROR y el cliente ya se reconecta solo (reconnectDelay), y
+   * en esa reconexión beforeConnect pide el token a la fuerza. Si vuelve a pasar, se deja de reintentar y
+   * se muestra el error.
+   */
+  private manejarStompError(frame: IFrame): void {
+    this.handlers.onConnectionChange?.(false);
+    if (!esOidc() || !esRechazoDeToken(frame)) return;
+
+    if (this.reintentoGastado) {
+      void this.client.deactivate();
+      this.handlers.onAuthError?.(
+        frame.headers?.message?.trim() ||
+          'La conexión en vivo rechazó tu sesión. Vuelve a iniciar sesión e inténtalo de nuevo.'
+      );
+      return;
+    }
+    this.reintentoGastado = true;
+    this.renovarToken = true;
   }
 
   private subscribeToCurrent(): void {

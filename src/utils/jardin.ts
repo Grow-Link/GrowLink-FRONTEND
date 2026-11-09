@@ -38,14 +38,20 @@ const ESPECIE_POR_CATEGORIA: Record<string, Especie> = {
 
 const DEFAULT_ESPECIE: Especie = { forma: 1, paleta: 'A' };
 
-/** `categoria` puede venir ya convertida a texto para mostrar (ver categoriaDesdeEnum) o como enum crudo. */
+/**
+ * `categoria` puede venir ya convertida a texto para mostrar (ver categoriaDesdeEnum) o como enum crudo.
+ * Las dos formas tienen que caer en la misma especie, así que se pasa todo a la forma del enum: sin tildes,
+ * en mayúsculas, con guion bajo entre palabras y sin las preposiciones que solo lleva el nombre que se
+ * muestra («Ingeniería de Sistemas» -> INGENIERIA_SISTEMAS, igual que INGENIERIA_SISTEMAS).
+ */
 function normalizar(categoria: string): string {
   return categoria
     .toUpperCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^A-Z]+/g, '_')
-    .replace(/^_|_$/g, '');
+    .replace(/^_|_$/g, '')
+    .replace(/_(?:DE|DEL|LA|LAS|EL|LOS|Y)(?=_)/g, '');
 }
 
 export function especieDeCategoria(categoria: string): Especie {

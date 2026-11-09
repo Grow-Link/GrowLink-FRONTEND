@@ -5,6 +5,16 @@
 // El login ya es real: el usuario se elige en UserSelectPage a partir de
 // GET /api/auth/usuarios y la sesión queda guardada aquí (un solo usuario
 // activo a la vez, no uno por rol simulado).
+//
+// Hay dos modos (VITE_AUTH_MODE, ver authMode.ts) y la diferencia entre ellos
+// está solo en de dónde sale el token del encabezado Authorization:
+//   legacy: del `token` de la sesión guardada (el JWT de usuarios-service).
+//   oidc:   de MSAL (ver msalAuth.ts). La sesión guardada sigue existiendo
+//           porque las pantallas necesitan id, nombre y rol, pero su `token`
+//           queda vacío: el access token lo administra MSAL, no este módulo.
+
+import { esOidc } from './authMode';
+import { MicrosoftAuthError, obtenerAccessToken } from './msalAuth';
 
 export const USUARIOS_API = '/api-usuarios';
 export const CURSOS_API = '/api-cursos';
@@ -96,12 +106,75 @@ export interface AuthorizedRequest {
   init?: RequestInit;
 }
 
+function conAutorizacion(base: HeadersInit | undefined, token: string): Headers {
+  const headers = new Headers(base);
+  headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+}
+
 /**
- * fetch con el token de la sesión activa. Si el servicio rechaza el token
- * (401 o 403 — cursos-service responde 403 cuando falta/vence el token) la
- * sesión se borra y se dispara SESSION_EXPIRED_EVENT para que la UI regrese
- * al login, en vez de reintentar en silencio con otra identidad.
+ * El token que va en `Authorization`, según el modo:
+ *  - legacy: el JWT que emitió usuarios-service, guardado en la sesión.
+ *  - oidc:   el access token de Microsoft. MSAL lo devuelve de su caché y lo
+ *            renueva en silencio cuando le faltan menos de 5 minutos para
+ *            vencer, así que no hace falta un temporizador propio: toda
+ *            llamada autenticada pasa por aquí.
  */
+async function tokenDeAcceso(renovar = false): Promise<string> {
+  if (esOidc()) return obtenerAccessToken(renovar);
+  const session = getSession();
+  if (!session) throw new SessionExpiredError();
+  return session.token;
+}
+
+/** Borra la sesión y avisa a la UI para que regrese al ingreso. */
+function expirarSesion(): never {
+  clearSession();
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  throw new SessionExpiredError();
+}
+
+/**
+ * fetch con el token del modo activo. No necesita una sesión guardada, así que
+ * sirve también para GET /api/usuarios/me, que es justo la llamada que crea la
+ * sesión en modo oidc.
+ *
+ * Si el servicio rechaza el token (401, o 403 — cursos-service responde 403
+ * cuando falta o vence) la sesión se borra y se dispara SESSION_EXPIRED_EVENT
+ * para que la UI regrese al login, en vez de reintentar en silencio con otra
+ * identidad.
+ *
+ * En modo oidc se intenta UNA vez más antes de rendirse, con un token renovado
+ * a la fuerza (puede que el servicio haya rotado sus claves o que el token
+ * venciera justo en el camino). Si el token renovado sale igual al que acabó de
+ * usarse, el rechazo no era por el token — p. ej. un 403 por falta de permiso —
+ * y no se repite la llamada al vacío. En modo legacy nada de esto corre.
+ */
+export async function bearerFetch(url: string, init: RequestInit = {}, servicio = 'cursos-service'): Promise<Response> {
+  let token: string;
+  try {
+    token = await tokenDeAcceso();
+  } catch (err) {
+    // falta la sesión de Microsoft: hay que volver a iniciarla. Un error de
+    // configuración, en cambio, se muestra tal cual (reintentar no lo arregla).
+    if (err instanceof MicrosoftAuthError && err.requiereLogin) expirarSesion();
+    throw err;
+  }
+
+  const res = await send(url, { ...init, headers: conAutorizacion(init.headers, token) }, servicio);
+  if (res.status !== 401 && res.status !== 403) return res;
+
+  if (esOidc()) {
+    const renovado = await obtenerAccessToken(true).catch(() => null);
+    if (renovado && renovado !== token) {
+      const reintento = await send(url, { ...init, headers: conAutorizacion(init.headers, renovado) }, servicio);
+      if (reintento.status !== 401 && reintento.status !== 403) return reintento;
+    }
+  }
+  expirarSesion();
+}
+
+/** Igual que bearerFetch, pero la petición se arma con los datos de la sesión activa (id del usuario, etc.). */
 export async function authorizedFetch(
   build: (session: BackendSession) => AuthorizedRequest,
   servicio = 'cursos-service'
@@ -109,15 +182,6 @@ export async function authorizedFetch(
   const session = getSession();
   if (!session) throw new SessionExpiredError();
 
-  const { url, init = {} } = build(session);
-  const headers = new Headers(init.headers);
-  headers.set('Authorization', `Bearer ${session.token}`);
-  const res = await send(url, { ...init, headers }, servicio);
-
-  if (res.status === 401 || res.status === 403) {
-    clearSession();
-    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-    throw new SessionExpiredError();
-  }
-  return res;
+  const { url, init } = build(session);
+  return bearerFetch(url, init, servicio);
 }

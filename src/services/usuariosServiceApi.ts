@@ -7,7 +7,8 @@
 // `estado` (no banderas booleanas), y POST /api/auth/login que además del
 // token devuelve el `usuario` ya resuelto.
 
-import { USUARIOS_API, authorizedFetch, clearSession, readJson, send, setSession, type BackendSession } from './backendSession';
+import { USUARIOS_API, authorizedFetch, bearerFetch, clearSession, readJson, send, setSession, type BackendSession } from './backendSession';
+import { cerrarSesionMicrosoft } from './msalAuth';
 import { CATEGORIA_ENUM, categoriaDesdeEnum, type CategoriaCurso } from './cursosServiceApi';
 import type { Level, UserRole } from '../types';
 
@@ -61,8 +62,66 @@ export async function login(usuario: UsuarioQuemado): Promise<BackendSession> {
   return session;
 }
 
-export function logout(): void {
+/** Cierra la sesión de la app y, en modo oidc, también la de MSAL (en legacy eso último no hace nada). */
+export async function logout(): Promise<void> {
   clearSession();
+  await cerrarSesionMicrosoft();
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Modo oidc: quién soy según el token, y la elección de rol del primer ingreso
+// ---------------------------------------------------------------------------------------------------------
+
+/** Los roles que una persona puede escoger. ADMIN no se ofrece: ese lo asigna quien administra. */
+export const ROLES_ELEGIBLES = ['USUARIO', 'PUBLICADOR'] as const;
+export type RolElegible = (typeof ROLES_ELEGIBLES)[number];
+
+export interface UsuarioMe extends UsuarioQuemado {
+  /**
+   * false mientras la persona no haya escogido su rol (primer ingreso con Microsoft). Si el campo no viene
+   * se asume que sí está elegido: así nadie queda atrapado en la pantalla de rol por un contrato distinto.
+   */
+  rolElegido: boolean;
+}
+
+function parseMe(data: any): UsuarioMe {
+  return { ...parseUsuario(data), rolElegido: data?.rolElegido !== false };
+}
+
+/**
+ * GET /api/usuarios/me — quién es la persona según el token que lleva la petición. No depende de que haya
+ * una sesión guardada (va por bearerFetch), porque en modo oidc es justo la llamada que la crea.
+ */
+export async function getUsuarioMe(): Promise<UsuarioMe> {
+  const res = await bearerFetch(`${USUARIOS_API}/api/usuarios/me`, undefined, SERVICIO);
+  return parseMe(await readJson<unknown>(res, SERVICIO));
+}
+
+/** PUT /api/usuarios/me/rol — fija el rol del primer ingreso. El servidor responde con el usuario ya actualizado. */
+export async function elegirRol(rol: RolElegible): Promise<UsuarioMe> {
+  const res = await bearerFetch(
+    `${USUARIOS_API}/api/usuarios/me/rol`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol }) },
+    SERVICIO
+  );
+  return parseMe(await readJson<unknown>(res, SERVICIO));
+}
+
+/**
+ * Modo oidc: con el access token de Microsoft resuelve quién es la persona y guarda la sesión. El token no se
+ * guarda (lo administra MSAL): la sesión solo lleva id, nombre y rol, que es lo que necesitan las pantallas y
+ * las llamadas que piden ?usuarioId=.
+ */
+export async function iniciarSesionConToken(): Promise<{ session: BackendSession; rolElegido: boolean }> {
+  const me = await getUsuarioMe();
+  return { session: guardarSesionDe(me), rolElegido: me.rolElegido };
+}
+
+/** Deja en la sesión los datos que vienen de /api/usuarios/me (sin token: en modo oidc lo administra MSAL). */
+export function guardarSesionDe(me: UsuarioMe): BackendSession {
+  const session: BackendSession = { token: '', usuarioId: me.id, nombre: me.nombre, rol: me.rol, cargo: me.cargo };
+  setSession(session);
+  return session;
 }
 
 export interface Perfil {
