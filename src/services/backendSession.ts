@@ -15,6 +15,7 @@
 
 import { esOidc } from './authMode';
 import { MicrosoftAuthError, obtenerAccessToken } from './msalAuth';
+import { cifrarPeticion, descifrarRespuesta, olvidarLlavesPublicas } from './cifrado';
 
 export const USUARIOS_API = '/api-usuarios';
 export const CURSOS_API = '/api-cursos';
@@ -67,11 +68,31 @@ export function clearSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
 
+/**
+ * Todas las llamadas a los servicios salen por aquí, así que aquí es donde se cifran (ver cifrado.ts): el cuerpo
+ * de la petición sale cifrado y la respuesta se descifra antes de entregarla, de modo que quien llama no nota nada.
+ * Si el servicio no pudo descifrar la petición (responde 400 sin cifrar: p. ej. se reinició con otra llave) se
+ * vuelve a pedir su llave pública y se intenta una vez más.
+ */
 export async function send(url: string, init: RequestInit | undefined, servicio: string): Promise<Response> {
-  try {
-    return await fetch(url, init);
-  } catch {
-    throw new BackendError(`No se pudo conectar con ${servicio}. ¿Está corriendo?`);
+  for (let intento = 0; ; intento += 1) {
+    const peticion = await cifrarPeticion(url, init).catch(() => ({ url, init, llave: null }));
+    let res: Response;
+    try {
+      res = await fetch(peticion.url, peticion.init);
+    } catch {
+      throw new BackendError(`No se pudo conectar con ${servicio}. ¿Está corriendo?`);
+    }
+    if (!peticion.llave) return res;
+    if (res.status === 400 && res.headers.get('X-GL-Cifrado') !== '1' && intento === 0) {
+      olvidarLlavesPublicas();
+      continue;
+    }
+    try {
+      return await descifrarRespuesta(res, peticion.llave);
+    } catch {
+      throw new BackendError(`No se pudo descifrar la respuesta de ${servicio}.`, res.status);
+    }
   }
 }
 

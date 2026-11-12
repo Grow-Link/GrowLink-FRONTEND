@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly VITE_AZURE_CLIENT_ID?: string;
   readonly VITE_AZURE_AUTHORITY?: string;
   readonly VITE_API_SCOPE?: string;
+  /** `off` apaga el cifrado de las peticiones, `on` lo prende; sin valor está prendido salvo en pruebas (services/cifrado.ts). */
+  readonly VITE_CIFRADO?: string;
   /** Encabezado del CONNECT de STOMP en el que trivia-service espera el token (ver services/triviaSocket.ts). */
   readonly VITE_WS_AUTH_HEADER?: string;
 }
