@@ -47,7 +47,14 @@ jobs:
           # la etiqueta lleva el SHA del commit: si fuera siempre la misma (main), Azure vería el mismo nombre de imagen
           # y no la volvería a bajar, así que el sitio se quedaría con la versión anterior
           IMAGEN="$BASE:${{ github.sha }}"
-          docker build -t "$IMAGEN" -t "$BASE:${{ github.ref_name }}" .
+          # el inicio de sesion con Microsoft va dentro del paquete (ver Dockerfile): se toma de las variables del ambiente
+          # de GitHub; si no estan, el front queda con el login de demostracion
+          docker build \
+            --build-arg VITE_AUTH_MODE="${{ vars.VITE_AUTH_MODE }}" \
+            --build-arg VITE_AZURE_CLIENT_ID="${{ vars.VITE_AZURE_CLIENT_ID }}" \
+            --build-arg VITE_AZURE_AUTHORITY="${{ vars.VITE_AZURE_AUTHORITY }}" \
+            --build-arg VITE_API_SCOPE="${{ vars.VITE_API_SCOPE }}" \
+            -t "$IMAGEN" -t "$BASE:${{ github.ref_name }}" .
           docker push "$IMAGEN"
           docker push "$BASE:${{ github.ref_name }}"
           echo "nombre=$IMAGEN" >> "$GITHUB_OUTPUT"
