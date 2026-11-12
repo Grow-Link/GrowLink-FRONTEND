@@ -1,7 +1,8 @@
 name: CI
 
-# revisa los tipos y compila el front cada vez que se sube algo a main, avance o final,
-# y tambien en los pull requests hacia main
+# revisa los tipos, corre las pruebas con su cobertura y compila el front cada vez que se sube algo a main,
+# avance o final, y tambien en los pull requests hacia main. Si el repo tiene SONAR_TOKEN, manda ademas el
+# analisis a SonarCloud
 on:
   push:
     branches: [main, avance, final]
@@ -11,9 +12,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # un secreto no se puede preguntar en un if: se pasa a una variable de entorno y se pregunta por ella.
+      # En un pull request que viene de un fork GitHub no entrega secretos, asi que ahi queda vacio y Sonar se omite
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Bajar el codigo
         uses: actions/checkout@v4
+        with:
+          # SonarCloud necesita la historia completa para saber que lineas son nuevas y a quien atribuirlas
+          fetch-depth: 0
 
       - name: Instalar Node 22
         uses: actions/setup-node@v4
@@ -27,5 +35,35 @@ jobs:
       - name: Revisar tipos
         run: npx tsc --noEmit
 
+      # Vitest: si una prueba falla, el workflow queda en rojo y no se compila. Deja la cobertura en coverage/
+      # (lcov.info para SonarCloud y el HTML en coverage/lcov-report/). Ver vitest.config.ts
+      - name: Correr pruebas y medir cobertura
+        run: npm run test:coverage
+
       - name: Compilar
         run: npm run build
+
+      # para ver la cobertura sin depender de SonarCloud: se baja desde el resumen de la corrida
+      - name: Guardar el reporte de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-${{ github.event.repository.name }}
+          path: coverage/
+          if-no-files-found: error
+
+      # Mientras el repo no tenga el secreto SONAR_TOKEN, el analisis se OMITE (con un aviso) y el workflow queda
+      # en verde, igual que el despliegue de cd.yml sin AZURE_WEBAPP_NAME
+      - name: Aviso, SonarCloud no esta configurado
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "::notice::Analisis de SonarCloud omitido, falta el secreto SONAR_TOKEN en el repo (ver README)."
+
+      # Lo que se analiza y la cobertura (con lo que no cuenta) estan en sonar-project.properties. La organizacion
+      # y la clave del proyecto son las que pone SonarCloud al importar el repo desde GitHub; si quedaron
+      # distintas, se cambian con las variables SONAR_ORGANIZATION y SONAR_PROJECT_KEY del repo
+      - name: Analisis de SonarCloud
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          args: >
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'grow-link' }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'Grow-Link_GrowLink-FRONTEND' }}

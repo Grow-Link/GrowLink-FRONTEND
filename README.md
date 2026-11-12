@@ -51,7 +51,7 @@ Tiene tres roles:
 - **React Router v7** — rutas reales por página, con guarda de sesión
 - **Recharts** — gráficas del panel de administración
 - **MSAL** (`@azure/msal-browser`) — inicio de sesión con Microsoft, opcional (ver «Inicio de sesión»)
-- **Vitest** — pruebas de la lógica (servicios y utilidades) con cobertura
+- **Vitest** — pruebas de la lógica (servicios, utilidades, store y hooks) con cobertura, que también lee SonarCloud
 - **oxfmt** — formateo de código
 
 ---
@@ -74,11 +74,56 @@ npm run preview
 # Pruebas (Vitest)
 npm test
 
-# Pruebas con reporte de cobertura (texto en consola y lcov en coverage/)
+# Pruebas con reporte de cobertura (texto en consola; lcov.info y el HTML en coverage/)
 npm run test:coverage
 ```
 
 El servidor de desarrollo corre en `http://localhost:5173` por defecto.
+
+---
+
+## Pruebas, cobertura y SonarCloud
+
+`ci.yml` revisa los tipos, corre las pruebas con su cobertura (`npm run test:coverage`) y compila, en cada push a
+`main`, `avance` o `final` y en cada pull request a `main`. Si una prueba falla, el workflow queda en rojo. La
+cobertura se puede bajar como artefacto `cobertura-GrowLink-FRONTEND` desde el resumen de la corrida
+(`lcov-report/index.html`).
+
+### Qué cuenta para la cobertura
+
+Se mide sobre la **lógica**: todo `src/` menos la presentación. La lista es **la misma** en `vitest.config.ts`
+(`coverage.exclude`) y en `sonar-project.properties` (`sonar.coverage.exclusions`), para que el número de
+`npm run test:coverage` y el de SonarCloud sean el mismo; si se cambia una, se cambia la otra.
+
+| No cuenta | Por qué |
+|---|---|
+| `src/pages/`, `src/components/`, `App.tsx`, `main.tsx` | Presentación y arranque de React (así lo pide el alcance) |
+| `src/utils/roadmapPdf.ts` | Dibuja el PDF con jsPDF: coordenadas y tipografías, se revisa mirándolo |
+| `src/utils/sonidos.ts` | Sintetiza los efectos con la Web Audio API |
+| `src/services/legalText.ts` | Dos textos legales en constantes |
+
+`src/store/` y `src/hooks/` **sí cuentan**: `NavigationContext` decide la sesión y a qué pantalla va cada rol, y eso
+es lógica aunque viva en un componente de React. Hoy no tienen pruebas, y por eso la cobertura queda en **73,9 %
+de las líneas** (520 de 704): los servicios y las utilidades están casi completos (98 % y 100 %) y lo que falta es
+`store/` y `hooks/`. Es lo siguiente que conviene probar. (Medido el 12-11-2026; sin ninguna exclusión, SonarCloud
+habría mostrado 12,8 %, casi todo por páginas y componentes.)
+
+Lo que no cuenta para la cobertura **sí se analiza** en SonarCloud (bugs, vulnerabilidades, código repetido): solo no
+se le pide cobertura. Las pruebas (`*.test.ts`) y sus ayudas (`src/pruebas/`) van como pruebas, no como código.
+
+### Prender SonarCloud
+
+Mientras el repo no tenga el secreto `SONAR_TOKEN`, el paso de SonarCloud se **omite** con un aviso y el workflow
+queda en verde. Para prenderlo:
+
+1. En SonarCloud, importar el repo desde la organización de GitHub y, en *Administration > Analysis Method*, apagar
+   *Automatic Analysis* (si queda prendido, el análisis desde el CI falla, y además no leería la cobertura).
+2. Crear un token en SonarCloud (*My Account > Security*) y guardarlo en GitHub como secreto del repo `SONAR_TOKEN`.
+3. El CI usa la organización `grow-link` y la clave `Grow-Link_GrowLink-FRONTEND`, que son las que pone SonarCloud al
+   importar. Si quedaron distintas, poner las variables del repo `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`.
+
+La puerta de calidad por defecto de SonarCloud pide 80 % de cobertura en el **código nuevo**: un cambio en `store/` o
+`hooks/` sin pruebas la va a marcar.
 
 ---
 
