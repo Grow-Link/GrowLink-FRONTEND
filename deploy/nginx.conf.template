@@ -7,13 +7,44 @@
 
 resolver ${DNS_RESOLVER} valid=5s ipv6=off;
 
+# BALANCEADOR DE CARGA DE TRIVIA (escenarios D1 y D3). Trivia corre en varias copias, cada una en su propio servidor (en
+# Azure: tres App Service en tres planes distintos, dos en Canada Central y uno en East US 2) y todas comparten RabbitMQ y la
+# base de datos, asi que da igual a cual llegue cada jugador. Aqui se elige la copia:
+#   - split_clients reparte cada peticion (o cada WebSocket) al azar segun estos pesos: 40 % la copia 1, 40 % la 2 y
+#     20 % la 3 (la 3 esta en otra region, con mas latencia hacia la base de datos, por eso lleva menos)
+#   - si la elegida no contesta (conexion rechazada, 502, 503 o 504) se reintenta en la siguiente (location @trivia_siguiente),
+#     asi apagar una copia no corta el servicio. Cada intento fallido cuesta como mucho proxy_connect_timeout (2 s)
+# Se ponen las tres direcciones (TRIVIA_URL, TRIVIA_URL_2, TRIVIA_URL_3). Con una sola (como en el docker compose, donde el
+# nombre del servicio ya reparte entre todas las replicas) las tres valen lo mismo y esto no cambia nada.
+# El reparto va por NUMERO (1, 2, 3) y no por direccion para que nginx arranque aunque dos direcciones sean iguales.
+split_clients "${request_id}" $trivia_numero {
+    40% 1;
+    40% 2;
+    *   3;
+}
+map $trivia_numero $trivia_destino {
+    1       ${TRIVIA_URL};
+    2       ${TRIVIA_URL_2};
+    default ${TRIVIA_URL_3};
+}
+map $trivia_numero $trivia_siguiente_numero {
+    1       2;
+    2       3;
+    default 1;
+}
+map $trivia_siguiente_numero $trivia_siguiente {
+    1       ${TRIVIA_URL};
+    2       ${TRIVIA_URL_2};
+    default ${TRIVIA_URL_3};
+}
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
 
 server {
-    listen 80;
+    listen 8080;
     root /usr/share/nginx/html;
     index index.html;
 
@@ -50,15 +81,18 @@ server {
     }
 
     location /api-trivia/ {
-        set $destino ${TRIVIA_URL};
+        set $destino $trivia_destino;
         rewrite ^/api-trivia/(.*)$ /$1 break;
         proxy_pass $destino;
         include /etc/nginx/proxy_comun.conf;
+        # que nginx tambien reintente cuando la copia SI contesta pero con un error de servidor (p. ej. 503 de una app apagada)
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @trivia_siguiente;
     }
 
     # STOMP sobre WebSocket, /ws-trivia en el front es /ws en trivia-service
     location = /ws-trivia {
-        set $destino ${TRIVIA_URL};
+        set $destino $trivia_destino;
         rewrite ^ /ws break;
         proxy_pass $destino;
         include /etc/nginx/proxy_comun.conf;
@@ -66,6 +100,21 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         # una partida puede estar mucho rato sin mensajes, que no se corte la conexion
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @trivia_siguiente;
+    }
+
+    # segundo intento de trivia: la copia siguiente a la que no contesto. La direccion de la peticion ya viene reescrita
+    # (/api/... o /ws) por el "rewrite ... break" de arriba, asi que aqui solo cambia el destino. Es lo mismo para HTTP y
+    # para WebSocket: las cabeceras de Upgrade viajan siempre y para una peticion normal no hacen nada.
+    location @trivia_siguiente {
+        set $destino $trivia_siguiente;
+        proxy_pass $destino;
+        include /etc/nginx/proxy_comun.conf;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }

@@ -235,7 +235,7 @@ servicios (`deploy/nginx.conf.template`).
 - `cd.yml` construye la imagen, la sube a GitHub Container Registry y la
   despliega a Azure App Service en el ambiente de su rama (`main` -> `actual`,
   `avance` -> `avance`, `final` -> `final`). En la App Service poner
-  `WEBSITES_PORT=80` y las variables de arriba. El flujo completo de ramas y
+  `WEBSITES_PORT=8080` y las variables de arriba. El flujo completo de ramas y
   ambientes esta en el README del repo `infra`.
 
 ---
