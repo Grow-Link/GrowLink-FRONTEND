@@ -1,6 +1,6 @@
 name: CD
 
-# construye la imagen del front (nginx + front compilado), la sube a GitHub Container Registry
+# cuando CI termina bien, construye la imagen del front (nginx + front compilado), la sube a GitHub Container Registry
 # y la despliega en Azure App Service, en el ambiente "actual" para main (y el que lleve el nombre
 # de la rama para las demas). En cada ambiente de GitHub (Settings > Environments) van:
 #   variable AZURE_WEBAPP_NAME
@@ -9,7 +9,12 @@ name: CD
 # Mientras el ambiente no tenga configurada AZURE_WEBAPP_NAME, no se sube ni se despliega nada:
 # el workflow se omite con un aviso y queda en verde.
 on:
-  push:
+  # Solo corre cuando CI termina y salio bien: un cambio que no compila, no pasa las pruebas o (con la variable
+  # SONAR_ESPERAR_PUERTA=true) no pasa la puerta de calidad de SonarCloud no llega a Azure. A mano (workflow_dispatch)
+  # se puede desplegar igual, para una emergencia. Escenario M1: el pipeline se detiene antes del despliegue.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main, avance, final]
   workflow_dispatch:
 
@@ -19,8 +24,9 @@ permissions:
 
 jobs:
   desplegar:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'actual' || github.ref_name }}
+    environment: ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'main' && 'actual' || (github.event.workflow_run.head_branch || github.ref_name) }}
     steps:
       - name: Aviso, el despliegue a Azure no esta configurado
         if: ${{ vars.AZURE_WEBAPP_NAME == '' }}
@@ -29,6 +35,9 @@ jobs:
       - name: Bajar el codigo
         if: ${{ vars.AZURE_WEBAPP_NAME != '' }}
         uses: actions/checkout@v4
+        with:
+          # el commit que CI acaba de aprobar, no el ultimo de la rama
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Entrar a GitHub Container Registry
         if: ${{ vars.AZURE_WEBAPP_NAME != '' }}
@@ -46,7 +55,7 @@ jobs:
           BASE="ghcr.io/${DUENO}/growlink-frontend"
           # la etiqueta lleva el SHA del commit: si fuera siempre la misma (main), Azure vería el mismo nombre de imagen
           # y no la volvería a bajar, así que el sitio se quedaría con la versión anterior
-          IMAGEN="$BASE:${{ github.sha }}"
+          IMAGEN="$BASE:${{ github.event.workflow_run.head_sha || github.sha }}"
           # el inicio de sesion con Microsoft va dentro del paquete (ver Dockerfile): se toma de las variables del ambiente
           # de GitHub; si no estan, el front queda con el login de demostracion
           docker build \
@@ -54,9 +63,9 @@ jobs:
             --build-arg VITE_AZURE_CLIENT_ID="${{ vars.VITE_AZURE_CLIENT_ID }}" \
             --build-arg VITE_AZURE_AUTHORITY="${{ vars.VITE_AZURE_AUTHORITY }}" \
             --build-arg VITE_API_SCOPE="${{ vars.VITE_API_SCOPE }}" \
-            -t "$IMAGEN" -t "$BASE:${{ github.ref_name }}" .
+            -t "$IMAGEN" -t "$BASE:${{ github.event.workflow_run.head_branch || github.ref_name }}" .
           docker push "$IMAGEN"
-          docker push "$BASE:${{ github.ref_name }}"
+          docker push "$BASE:${{ github.event.workflow_run.head_branch || github.ref_name }}"
           echo "nombre=$IMAGEN" >> "$GITHUB_OUTPUT"
 
       # las URLs de los servicios y el puerto se configuran en la App Service (ver README)

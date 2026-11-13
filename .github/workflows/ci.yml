@@ -67,3 +67,4 @@ jobs:
           args: >
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'grow-link' }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY || 'Grow-Link_GrowLink-FRONTEND' }}
+            -Dsonar.qualitygate.wait=${{ vars.SONAR_ESPERAR_PUERTA || 'false' }}
