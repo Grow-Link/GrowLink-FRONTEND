@@ -100,7 +100,7 @@ describe('configuración', () => {
 
     await msal();
 
-    expect(creado.configuraciones[0].auth.redirectUri).toBe(window.location.origin);
+    expect(creado.configuraciones[0].auth.redirectUri).toBe(`${window.location.origin}/redirect.html`);
   });
 
   it('explica qué variable falta en vez de fallar con un error de MSAL', async () => {

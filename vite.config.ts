@@ -18,6 +18,15 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    build: {
+      // dos paginas: la app y la de retorno del inicio de sesion con Microsoft (redirect.html, ver src/redirect.ts)
+      rollupOptions: {
+        input: {
+          main: path.resolve(import.meta.dirname, 'index.html'),
+          redirect: path.resolve(import.meta.dirname, 'redirect.html'),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),

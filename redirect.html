@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Iniciando sesión…</title>
+  </head>
+  <body>
+    <!--
+      Página de retorno del inicio de sesión con Microsoft (ver src/redirect.ts). Es a propósito casi vacía: la ventana
+      emergente vuelve aquí, entrega la respuesta a la ventana de la app y se cierra. Si volviera a la app completa, el
+      enrutador borraría la respuesta de la dirección y el inicio de sesión se quedaría esperando hasta agotar el tiempo.
+    -->
+    <p style="font-family: sans-serif; color: #555; text-align: center; margin-top: 3rem">Iniciando sesión…</p>
+    <script type="module" src="/src/redirect.ts"></script>
+  </body>
+</html>

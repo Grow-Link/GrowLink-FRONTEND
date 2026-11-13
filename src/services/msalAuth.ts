@@ -86,8 +86,10 @@ function configuracion(nivelDeLog: number): Configuration {
     auth: {
       clientId,
       authority,
-      // La app es una SPA con una sola entrada: el redirect URI registrado en Entra ID es el origen.
-      redirectUri: window.location.origin,
+      // El redirect URI registrado en Entra ID es una pagina aparte (redirect.html), no la app: MSAL 5 vuelve a ella
+      // desde la ventana emergente y ella entrega la respuesta a la app (ver src/redirect.ts). Si fuera la app,
+      // el enrutador borraria la respuesta de la direccion y el login se quedaria esperando hasta agotar el tiempo.
+      redirectUri: `${window.location.origin}/redirect.html`,
       postLogoutRedirectUri: window.location.origin,
     },
     cache: {
