@@ -85,9 +85,12 @@ server {
         rewrite ^/api-trivia/(.*)$ /$1 break;
         proxy_pass $destino;
         include /etc/nginx/proxy_comun.conf;
-        # que nginx tambien reintente cuando la copia SI contesta pero con un error de servidor (p. ej. 503 de una app apagada)
+        # que nginx tambien reintente cuando la copia SI contesta pero con un error: 502, 503 y 504, y el 403 con el que Azure
+    # responde cuando una App Service esta APAGADA (az webapp stop) — sin esto, apagar una copia le daria 403 a una de cada tres
+    # peticiones. Un 403 de verdad de trivia (permiso) tambien se reintenta en la siguiente copia y responde lo mismo: cuesta una
+    # peticion de mas, no cambia el resultado, y como solo hay un reintento no se encadena
         proxy_intercept_errors on;
-        error_page 502 503 504 = @trivia_siguiente;
+        error_page 403 502 503 504 = @trivia_siguiente;
     }
 
     # STOMP sobre WebSocket, /ws-trivia en el front es /ws en trivia-service
@@ -103,7 +106,7 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_intercept_errors on;
-        error_page 502 503 504 = @trivia_siguiente;
+        error_page 403 502 503 504 = @trivia_siguiente;
     }
 
     # segundo intento de trivia: la copia siguiente a la que no contesto. La direccion de la peticion ya viene reescrita
