@@ -17,6 +17,17 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # seguridad del canal (escenario S3). HSTS le dice al navegador que este sitio solo se visita por HTTPS (un año):
+    # aunque alguien escriba http://, el navegador ya ni intenta la conexion sin cifrar. Solo cuenta cuando llega por HTTPS
+    # (en Azure, que es quien pone el certificado); en http://localhost el navegador lo ignora. Las demas cabeceras
+    # evitan que el navegador adivine el tipo de un archivo y que otro sitio meta este en un marco. SAMEORIGIN y no DENY
+    # porque el inicio de sesion con Microsoft puede abrir esta misma pagina en un marco oculto (ver src/redirect.ts).
+    # "always" las manda tambien en las respuestas de error. proxy_comun.conf quita las que traen los servicios para que no salgan dos veces.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
     # el front es una SPA, cualquier ruta que no sea un archivo devuelve index.html
     location / {
         try_files $uri /index.html;
