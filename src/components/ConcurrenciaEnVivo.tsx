@@ -35,7 +35,7 @@ export default function ConcurrenciaEnVivo() {
         if (activo) setError(e instanceof Error ? e.message : 'No se pudieron cargar las métricas');
       }
     };
-    cargar();
+    void cargar();
     const id = window.setInterval(cargar, CADA_MS);
     return () => {
       activo = false;

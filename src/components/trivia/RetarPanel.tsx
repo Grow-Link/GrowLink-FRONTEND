@@ -72,7 +72,7 @@ export default function RetarPanel({ onRetoEnviado, personaInicial }: Props) {
   useEffect(() => {
     let vivo = true;
     const cargar = () => retosEnviados().then((r) => vivo && setEnviados(r)).catch(() => undefined);
-    cargar();
+    void cargar();
     const id = window.setInterval(cargar, 6000);
     return () => {
       vivo = false;

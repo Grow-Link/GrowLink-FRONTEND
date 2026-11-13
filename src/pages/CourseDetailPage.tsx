@@ -39,7 +39,9 @@ export default function CourseDetailPage() {
     if (!paramId || !currentUser) return;
     let ignorar = false;
     setError(null);
-    nombresDePersonas().then((m) => !ignorar && setNombres(m));
+    nombresDePersonas()
+      .then((m) => !ignorar && setNombres(m))
+      .catch(() => undefined);
     obtenerCurso(paramId)
       .then(async (c) => {
         if (ignorar) return;

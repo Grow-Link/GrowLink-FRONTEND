@@ -120,13 +120,17 @@ describe('cifrado de las peticiones a los servicios', () => {
     expect(await res.json()).toEqual({ eco: '{"a":1}' });
   });
 
-  it('lo que no es de un servicio nuestro, o un cuerpo que no es texto, no se cifra', async () => {
+  it('un cuerpo que no es texto no se cifra, y una direccion que no es de un servicio nuestro ni siquiera sale', async () => {
     const servicio = await servicioFalso();
 
-    await send('/otra-cosa/x', undefined, 'otro');
     await send('/api-cursos/api/subir', { method: 'POST', body: new Blob(['x']) }, 'cursos-service');
-
     expect(servicio.vistas.every((v) => v.headers.get('X-GL-Clave') === null)).toBe(true);
+
+    // send solo llama a /api-usuarios, /api-cursos y /api-trivia: cualquier otra direccion se rechaza antes de tocar la red
+    const antes = servicio.vistas.length;
+    await expect(send('/otra-cosa/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
+    await expect(send('https://sitio-ajeno.example/api-cursos/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
+    expect(servicio.vistas.length).toBe(antes);
   });
 
   it('si el servicio no pudo descifrar (cambió de llave), se vuelve a pedir la llave y se intenta una vez más', async () => {

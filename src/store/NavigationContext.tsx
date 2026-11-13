@@ -195,7 +195,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       } finally {
         if (!ignorar) setResolviendoSesion(false);
       }
-    })();
+    })().catch(() => undefined);
     return () => {
       ignorar = true;
     };

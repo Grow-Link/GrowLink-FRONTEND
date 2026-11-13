@@ -20,6 +20,11 @@ import { cifrarPeticion, descifrarRespuesta, olvidarLlavesPublicas } from './cif
 export const USUARIOS_API = '/api-usuarios';
 export const CURSOS_API = '/api-cursos';
 
+// Las unicas direcciones a las que esta app le habla: sus tres servicios, a traves del nginx (o del proxy de Vite). `send` rechaza
+// cualquier otra, asi que un dato que llegue de afuera no puede convertirse en una peticion a un sitio ajeno (falsificacion de
+// peticiones desde el cliente). /api-trivia vive tambien en triviaServiceApi.ts: se repite aqui para no crear una importacion circular.
+const DIRECCIONES_PERMITIDAS = [USUARIOS_API, CURSOS_API, '/api-trivia'] as const;
+
 export interface BackendSession {
   token: string;
   usuarioId: number;
@@ -75,6 +80,9 @@ export function clearSession(): void {
  * vuelve a pedir su llave pública y se intenta una vez más.
  */
 export async function send(url: string, init: RequestInit | undefined, servicio: string): Promise<Response> {
+  if (!DIRECCIONES_PERMITIDAS.some((base) => url.startsWith(`${base}/`))) {
+    throw new BackendError(`Direccion no permitida para ${servicio}: solo se llama a los servicios de GrowLink.`);
+  }
   for (let intento = 0; ; intento += 1) {
     const peticion = await cifrarPeticion(url, init).catch(() => ({ url, init, llave: null }));
     let res: Response;

@@ -18,22 +18,22 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Bajar el codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # SonarCloud necesita la historia completa para saber que lineas son nuevas y a quien atribuirlas
           fetch-depth: 0
 
       - name: Instalar Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       - name: Instalar dependencias
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Revisar tipos
-        run: npx tsc --noEmit
+        run: node_modules/.bin/tsc --noEmit
 
       # Vitest: si una prueba falla, el workflow queda en rojo y no se compila. Deja la cobertura en coverage/
       # (lcov.info para SonarCloud y el HTML en coverage/lcov-report/). Ver vitest.config.ts
@@ -45,7 +45,7 @@ jobs:
 
       # para ver la cobertura sin depender de SonarCloud: se baja desde el resumen de la corrida
       - name: Guardar el reporte de cobertura
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cobertura-${{ github.event.repository.name }}
           path: coverage/
@@ -62,7 +62,7 @@ jobs:
       # distintas, se cambian con las variables SONAR_ORGANIZATION y SONAR_PROJECT_KEY del repo
       - name: Analisis de SonarCloud
         if: ${{ env.SONAR_TOKEN != '' }}
-        uses: SonarSource/sonarqube-scan-action@v8
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8
         with:
           args: >
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'grow-link' }}

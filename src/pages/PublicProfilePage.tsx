@@ -45,6 +45,8 @@ export default function PublicProfilePage() {
       setCursos(k);
       setPartidas(m);
       setCargando(false);
+    }).catch(() => {
+      if (!ignorar) setCargando(false);
     });
     return () => {
       ignorar = true;
