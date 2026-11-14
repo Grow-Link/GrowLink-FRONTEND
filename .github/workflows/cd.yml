@@ -24,7 +24,10 @@ permissions:
 
 jobs:
   desplegar:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # SOLO se despliega lo que CI aprobo en un push a este mismo repositorio. workflow_run corre con los secretos del repo y
+    # baja el codigo de la corrida de CI: si no se comprobara el origen, un pull request desde un fork (que puede tener una
+    # rama llamada main) haria correr su codigo aqui, con acceso a los secretos de despliegue.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-latest
     environment: ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'main' && 'actual' || (github.event.workflow_run.head_branch || github.ref_name) }}
     steps:
