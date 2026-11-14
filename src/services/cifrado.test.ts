@@ -130,6 +130,9 @@ describe('cifrado de las peticiones a los servicios', () => {
     const antes = servicio.vistas.length;
     await expect(send('/otra-cosa/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
     await expect(send('https://sitio-ajeno.example/api-cursos/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
+    // salirse de la base con .. o // tampoco vale
+    await expect(send('/api-cursos/../api-usuarios/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
+    await expect(send('/api-cursos//sitio-ajeno.example/x', undefined, 'otro')).rejects.toThrow('Direccion no permitida');
     expect(servicio.vistas.length).toBe(antes);
   });
 

@@ -213,29 +213,29 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     if (resolviendoSesion) return;
     if (!currentUser) {
       if (currentPage !== 'select-user' && currentPage !== 'landing') {
-        routerNavigate(PAGE_PATHS['select-user'], { replace: true });
+        void routerNavigate(PAGE_PATHS['select-user'], { replace: true });
       }
       return;
     }
     // primer ingreso con Microsoft: hasta que escoja su rol no puede ir a ninguna otra parte
     if (necesitaElegirRol) {
       if (currentPage !== 'role-choice') {
-        routerNavigate(PAGE_PATHS['role-choice'], { replace: true, state: { marca } });
+        void routerNavigate(PAGE_PATHS['role-choice'], { replace: true, state: { marca } });
       }
       return;
     }
     const inicio = PAGE_PATHS[ROLE_HOME[currentUser.role]];
     if (currentPage === 'role-choice') {
-      routerNavigate(inicio, { replace: true, state: { marca } });
+      void routerNavigate(inicio, { replace: true, state: { marca } });
       return;
     }
     if (currentPage === 'select-user' || currentPage === 'landing' || !ROLE_ALLOWED[currentUser.role].includes(currentPage)) {
-      routerNavigate(inicio, { replace: true, state: { marca } });
+      void routerNavigate(inicio, { replace: true, state: { marca } });
       return;
     }
     // una entrada del historial de otra sesión: se manda al inicio en vez de mostrar pantallas ajenas
     if (marca && marcaDeLaEntrada !== undefined && marcaDeLaEntrada !== marca && location.pathname !== inicio) {
-      routerNavigate(inicio, { replace: true, state: { marca } });
+      void routerNavigate(inicio, { replace: true, state: { marca } });
     }
   }, [location.pathname, currentPage, currentUser, routerNavigate, marca, marcaDeLaEntrada, resolviendoSesion, necesitaElegirRol]);
 
@@ -245,7 +245,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setSessionState(newSession);
     setSessionExpired(false);
     setNavCount(0);
-    routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(newSession.rol)]], { replace: true, state: { marca: valor } });
+    void routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(newSession.rol)]], { replace: true, state: { marca: valor } });
   }
 
   /**
@@ -258,7 +258,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     if (!cuenta) return;
     const { session: nueva, rolElegido } = await adoptarSesionDeMicrosoft();
     const destino = rolElegido ? PAGE_PATHS[ROLE_HOME[rolDesdeBackend(nueva.rol)]] : PAGE_PATHS['role-choice'];
-    routerNavigate(destino, { replace: true, state: { marca: sessionStorage.getItem(MARCA_STORAGE) ?? '' } });
+    void routerNavigate(destino, { replace: true, state: { marca: sessionStorage.getItem(MARCA_STORAGE) ?? '' } });
   }
 
   async function confirmarRol(rol: RolElegible) {
@@ -266,7 +266,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     const actualizada = guardarSesionDe(me);
     setSessionState(actualizada);
     setNecesitaElegirRol(false);
-    routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(actualizada.rol)]], { replace: true, state: { marca } });
+    void routerNavigate(PAGE_PATHS[ROLE_HOME[rolDesdeBackend(actualizada.rol)]], { replace: true, state: { marca } });
   }
 
   function logout() {
@@ -277,7 +277,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setSessionExpired(false);
     setNecesitaElegirRol(false);
     setNavCount(0);
-    routerNavigate(PAGE_PATHS['select-user'], { replace: true });
+    void routerNavigate(PAGE_PATHS['select-user'], { replace: true });
   }
 
   function navigate(page: Page, data?: { id?: string; replace?: boolean }) {
@@ -288,12 +288,12 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       path = `/mis-cursos/${data.id}/editar`;
     }
     if (!data?.replace) setNavCount((c) => c + 1);
-    routerNavigate(path, { replace: data?.replace ?? false, state: { marca } });
+    void routerNavigate(path, { replace: data?.replace ?? false, state: { marca } });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
   function goBack() {
-    routerNavigate(-1);
+    void routerNavigate(-1);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 

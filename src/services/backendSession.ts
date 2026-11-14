@@ -74,20 +74,35 @@ export function clearSession(): void {
 }
 
 /**
+ * La direccion que se va a llamar, reconstruida: una de las bases permitidas (constantes) mas la ruta que viene en `url`, que
+ * solo se acepta si no puede salirse de esa base (nada de `..`, `//`, `\` ni caracteres de control). Asi lo que llegue de
+ * afuera no puede convertirse en una peticion a otro sitio ni a otra ruta del servidor (falsificacion de peticiones desde el
+ * cliente y recorrido de rutas).
+ */
+function direccionPermitida(url: string, servicio: string): string {
+  const base = DIRECCIONES_PERMITIDAS.find((b) => url.startsWith(`${b}/`));
+  const ruta = base === undefined ? '' : url.slice(base.length);
+  // eslint-disable-next-line no-control-regex
+  const rutaValida = ruta.startsWith('/') && !ruta.includes('..') && !ruta.includes('//') && !ruta.includes('\\') && !/[\u0000-\u001f]/.test(ruta);
+  if (base === undefined || !rutaValida) {
+    throw new BackendError(`Direccion no permitida para ${servicio}: solo se llama a los servicios de GrowLink.`);
+  }
+  return `${base}${ruta}`;
+}
+
+/**
  * Todas las llamadas a los servicios salen por aquí, así que aquí es donde se cifran (ver cifrado.ts): el cuerpo
  * de la petición sale cifrado y la respuesta se descifra antes de entregarla, de modo que quien llama no nota nada.
  * Si el servicio no pudo descifrar la petición (responde 400 sin cifrar: p. ej. se reinició con otra llave) se
  * vuelve a pedir su llave pública y se intenta una vez más.
  */
 export async function send(url: string, init: RequestInit | undefined, servicio: string): Promise<Response> {
-  if (!DIRECCIONES_PERMITIDAS.some((base) => url.startsWith(`${base}/`))) {
-    throw new BackendError(`Direccion no permitida para ${servicio}: solo se llama a los servicios de GrowLink.`);
-  }
+  const destino = direccionPermitida(url, servicio);
   for (let intento = 0; ; intento += 1) {
-    const peticion = await cifrarPeticion(url, init).catch(() => ({ url, init, llave: null }));
+    const peticion = await cifrarPeticion(destino, init).catch(() => ({ url: destino, init, llave: null }));
     let res: Response;
     try {
-      res = await fetch(peticion.url, peticion.init);
+      res = await fetch(destino, peticion.init);
     } catch {
       throw new BackendError(`No se pudo conectar con ${servicio}. ¿Está corriendo?`);
     }
