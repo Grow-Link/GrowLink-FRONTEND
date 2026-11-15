@@ -16,7 +16,7 @@ export default defineConfig({
     // jsdom porque la capa de servicios usa cosas del navegador de verdad: sessionStorage y localStorage para
     // la sesión, window.dispatchEvent para avisar que el token venció, y Headers/Response para los fetch.
     environment: 'jsdom',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/pruebas/setup.ts'],
     restoreMocks: true,
     coverage: {
@@ -46,7 +46,7 @@ export default defineConfig({
         'src/services/legalText.ts',
         'src/**/*.d.ts',
         // las pruebas y lo que las ayuda no son código a cubrir (en SonarCloud son sonar.tests)
-        'src/**/*.test.ts',
+        'src/**/*.test.{ts,tsx}',
         'src/pruebas/**',
       ],
     },
