@@ -206,9 +206,10 @@ export default function TriviaRoomPage() {
   }, [avisoSalida]);
 
   // "unirse" registra la fila en sala_participante Y ata esta conexión STOMP a un usuarioId. Al host,
-  // POST /api/salas ya lo registró, así que su "unirse" choca con una llave duplicada — pero igual hay que
-  // mandarlo para asociar su sesión de WS; ese error se filtra. El ref evita mandarlo dos veces si STOMP reconecta.
-  const joinedCodeRef = useRef<string | null>(null);
+  // POST /api/salas ya lo registró, así que su "unirse" solo ata la sesión (el servidor lo trata como reconexión).
+  // Se manda en CADA conexión, también cuando STOMP reconecta solo: el servidor da por salida a quien se
+  // desconectó si pasan unos segundos sin un "unirse" nuevo. Si no se manda, una caída corta de red hace que
+  // saque al anfitrión y, si estaba solo, la sala queda cancelada ("Esa sala ya empezó o terminó").
 
   // Conexión STOMP: una por sala. Se abre al entrar a una sala (crear o unirse) y se cierra al salir.
   useEffect(() => {
@@ -217,10 +218,7 @@ export default function TriviaRoomPage() {
       onMessage: handleSocketMessage,
       onConnectionChange: (connected) => {
         setWsConnected(connected);
-        if (connected && joinedCodeRef.current !== sala.codigo) {
-          socket.unirse(session.usuarioId, session.nombre);
-          joinedCodeRef.current = sala.codigo;
-        }
+        if (connected) socket.unirse(session.usuarioId, session.nombre);
       },
       // modo oidc: el token no sirvió ni renovándolo, así que ya no se reintenta (ver triviaSocket)
       onAuthError: setWsErrorMsg,
@@ -415,7 +413,6 @@ export default function TriviaRoomPage() {
 
   function prepararComoHost(nueva: Sala) {
     capturarGotasAntes();
-    joinedCodeRef.current = null;
     // POST /api/salas ya registró al host como participante: se agrega de una vez en vez de esperar un SALA_UPDATE
     setParticipants([{ id: String(session!.usuarioId), name: session!.nombre, score: 0, streak: 0, lastGain: 0, isHost: true, isCurrentUser: true }]);
     setIsHost(true);
@@ -470,7 +467,6 @@ export default function TriviaRoomPage() {
         return;
       }
       capturarGotasAntes();
-      joinedCodeRef.current = null;
       setParticipants([]);
       setIsHost(false);
       setRetoActual(null);
@@ -543,7 +539,6 @@ export default function TriviaRoomPage() {
   }
 
   function resetAll(destino: PestanaLobby = 'jugar') {
-    joinedCodeRef.current = null;
     setStage('lobby');
     setPestana(destino);
     setIsHost(false);
