@@ -266,6 +266,16 @@ describe('getUsuarioMe y la elección de rol', () => {
     await expect(elegirRol('USUARIO')).rejects.toThrow();
   });
 
+  it('iniciarSesionConToken entiende la respuesta real de /me, que trae usuarioId y no id', async () => {
+    vi.stubEnv('VITE_AUTH_MODE', 'oidc');
+    simularFetch(() => jsonResponse({ usuarioId: 31, nombre: 'Paula', rol: 'USUARIO', rolElegido: false }));
+
+    const { session, rolElegido } = await iniciarSesionConToken();
+
+    expect(session.usuarioId).toBe(31);
+    expect(rolElegido).toBe(false);
+  });
+
   it('iniciarSesionConToken guarda la sesión sin token: el access token lo administra MSAL', async () => {
     vi.stubEnv('VITE_AUTH_MODE', 'oidc');
     simularFetch(() => jsonResponse({ id: 12, nombre: 'Mariana', rol: 'USUARIO', cargo: 'Estudiante', rolElegido: true }));

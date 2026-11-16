@@ -33,7 +33,8 @@ export function rolDesdeBackend(rol: string): UserRole {
 
 function parseUsuario(data: any): UsuarioQuemado {
   return {
-    id: Number(data?.id),
+    // el login de demostracion responde `id`; GET /api/usuarios/me (modo Microsoft) responde `usuarioId`
+    id: Number(data?.id ?? data?.usuarioId),
     nombre: String(data?.nombre ?? ''),
     rol: String(data?.rol ?? 'USUARIO'),
     cargo: data?.cargo ?? undefined,
